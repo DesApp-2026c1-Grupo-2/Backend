@@ -28,8 +28,8 @@ const laboratorioSchema = new mongoose.Schema(
 
         estado: {
         type: String,
-        enum: ["activo", "mantenimiento", "fuera_de_servicio"],
-        default: "activo",
+        enum: ["disponible", "reservado", "en mantenimiento", "fuera de servicio"],
+        default: "disponible",
         },
     },
     {

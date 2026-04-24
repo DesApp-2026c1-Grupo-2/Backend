@@ -38,7 +38,7 @@ const laboratorioSchemaJoi = Joi.object({
         }),
 
     estado: Joi.string()
-        .valid("activo", "mantenimiento", "fuera_de_servicio")
+        .valid("disponible", "reservado", "en mantenimiento", "fuera de servicio")
         .optional(),
 });
 

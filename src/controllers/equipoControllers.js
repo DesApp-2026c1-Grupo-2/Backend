@@ -1,5 +1,5 @@
 const Equipo = require("../models/equipo.model");
-const { equipoSchemaJoi } = require("../schemas/equipoSchema");
+const equipoSchemaJoi  = require("../schemas/equipoSchema");
 
 const createEquipo = async (req, res) => {
   try {

@@ -2,7 +2,11 @@ const express = require('express');
 const mongoose = require('mongoose');
 const app = express();
 require('dotenv').config();
-const YAML = require('yamljs');
+
+const equipoRouter = require('./routes/equipoRoutes');
+
+app.use(express.json());
+app.use('/equipo', equipoRouter);
 
 
 

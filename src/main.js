@@ -4,7 +4,12 @@ const app = express();
 require('dotenv').config();
 const YAML = require('yamljs');
 
+const laboratorioRouter = require('./routes/laboratoriotRoutes');
 
+
+app.use(express.json())
+//routes
+app.use('/laboratorio', laboratorioRouter);
 
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI

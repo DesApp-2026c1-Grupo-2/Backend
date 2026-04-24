@@ -1,35 +1,45 @@
 const Joi = require("joi");
 
-const laboratorioSchema = Joi.object({
-  nombre: Joi.string().min(3).max(100).required().messages({
-    "any.required": "El nombre es obligatorio",
-  }),
+const objectIdRegex = /^[0-9a-fA-F]{24}$/;
 
-  codigo: Joi.string().min(2).max(20).required(),
+const laboratorioSchemaJoi = Joi.object({
+    nombre: Joi.string()
+        .trim()
+        .min(2)
+        .max(100)
+        .required()
+        .messages({
+        "string.empty": "El nombre es obligatorio",
+        "string.min": "El nombre debe tener al menos 2 caracteres",
+        }),
 
-  edificio: Joi.object({
-    nombre: Joi.string().required(),
-    ubicacion: Joi.string().allow("", null),
-  }).required(),
+    edificioId: Joi.string()
+        .pattern(objectIdRegex)
+        .required()
+        .messages({
+        "string.pattern.base": "El edificioId debe ser un ObjectId válido",
+        "any.required": "El edificioId es obligatorio",
+        }),
 
-  capacidad: Joi.number().min(1).required(),
+    capacidad: Joi.number()
+        .integer()
+        .min(1)
+        .required()
+        .messages({
+        "number.base": "La capacidad debe ser un número",
+        "number.min": "La capacidad debe ser al menos 1",
+        }),
 
-  tipo: Joi.string().valid("biologia", "quimica", "mixto").required(),
+    tipo: Joi.string()
+        .valid("biologia", "quimica", "mixto")
+        .required()
+        .messages({
+        "any.only": "El tipo debe ser biologia, quimica o mixto",
+        }),
 
-  estado: Joi.string().valid("activo", "mantenimiento", "fuera_de_servicio"),
-
-  equipos: Joi.array().items(
-    Joi.object({
-      equipoId: Joi.string()
-        .regex(/^[0-9a-fA-F]{24}$/)
-        .required(),
-      nombre: Joi.string().allow("", null),
-      cantidad: Joi.number().min(0).required(),
-      fijo: Joi.boolean(),
-    })
-  ),
-
-  descripcion: Joi.string().allow("", null),
+    estado: Joi.string()
+        .valid("activo", "mantenimiento", "fuera_de_servicio")
+        .optional(),
 });
 
-module.exports = { laboratorioSchema };
+module.exports = laboratorioSchemaJoi;

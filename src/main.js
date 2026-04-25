@@ -6,14 +6,10 @@ require('dotenv').config();
 
 // --- Importación de Rutas ---
 const edificioRouter = require('./routes/edificioRoutes');
-
+const laboratorioRouter = require('./routes/laboratoriotRoutes');
 const equipoRouter = require('./routes/equipoRoutes');
 
 app.use(express.json());
-app.use('/equipo', equipoRouter);
-
-// --- Importación de Rutas ---
-const laboratorioRouter = require('./routes/laboratoriotRoutes');
 
 // Middlewares
 app.use(cors());
@@ -22,6 +18,7 @@ app.use(express.json());
 // Rutas
 app.use('/edificio', edificioRouter);
 app.use('/laboratorio', laboratorioRouter);
+app.use('/equipo', equipoRouter);
 
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI

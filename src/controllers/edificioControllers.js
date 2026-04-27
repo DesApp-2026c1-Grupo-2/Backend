@@ -1,4 +1,4 @@
-const  Laboratorio  = require('../models/edificio.model');
+const Edificio = require('../models/edificio.model');
 
 
 // C: Crear un nuevo edificio

@@ -3,7 +3,7 @@ services:
     image: mongo:4.4
     container_name: mongo_db_mongoose_2
     ports:
-      - "27018:27018"
+      - "27018:27017"
     volumes:
       - mongo_data:/data/db
     environment:
@@ -21,7 +21,7 @@ services:
     environment:
       ME_CONFIG_MONGODB_ADMINUSERNAME: admin
       ME_CONFIG_MONGODB_ADMINPASSWORD: admin123
-      ME_CONFIG_MONGODB_URL: mongodb://admin:admin123@mongodb:27018/
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin123@mongodb:27017/
       ME_CONFIG_BASICAUTH: 'false'
     depends_on:
       - mongodb

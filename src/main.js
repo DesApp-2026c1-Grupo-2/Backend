@@ -9,8 +9,6 @@ const edificioRouter = require('./routes/edificioRoutes');
 const laboratorioRouter = require('./routes/laboratoriotRoutes');
 const equipoRouter = require('./routes/equipoRoutes');
 
-app.use(express.json());
-
 // Middlewares
 app.use(cors());
 app.use(express.json());

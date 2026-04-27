@@ -8,3 +8,5 @@ router.post('/', crearEdificio);
 
 // R: Obtener todos los edificios
 router.get('/', obtenerEdificios);
+
+module.exports = router;

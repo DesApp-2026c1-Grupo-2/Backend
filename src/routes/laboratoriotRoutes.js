@@ -14,3 +14,5 @@ router.get('/:idLaboratorio', obtenerLaboratorioPorId);
 
 // R: Obtener todos los laboratorios disponibles
 router.get('/disponibles', obtenerLaboratoriosDisponibles);
+
+module.exports = router;

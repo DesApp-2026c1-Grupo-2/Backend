@@ -35,3 +35,8 @@ mongoose.connect(MONGO_URI)
 app.listen(PORT, () => {
     console.log('Servidor corriendo en el puerto ' + PORT)
 })
+
+//test
+const { seedPedidos } = require('./seed/pedido.seed.js');
+
+seedPedidos();

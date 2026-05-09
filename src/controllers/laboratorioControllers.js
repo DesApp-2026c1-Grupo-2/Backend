@@ -52,9 +52,21 @@ const obtenerLaboratoriosDisponibles = async (req, res) => {
     }
 };
 
+// R: Obtener todos los laboratorios de un edificio específico
+const obtenerLaboratoriosPorEdificio = async (req, res) => {
+    try {
+        const { idEdificio } = req.params;
+        const laboratorios = await Laboratorio.find({ edificioId: idEdificio });
+        res.status(200).json(laboratorios);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     crearLaboratorio,
     obtenerLaboratorios,
     obtenerLaboratorioPorId,
-    obtenerLaboratoriosDisponibles
+    obtenerLaboratoriosDisponibles,
+    obtenerLaboratoriosPorEdificio
 };

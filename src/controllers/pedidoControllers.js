@@ -13,13 +13,12 @@ const createPedido = async (req, res) => {
   try {
     const pedido = new Pedido({
       ...req.body,
-      problemas: req.problemas.length,
-      detalleProblemas: req.problemas,
       estado: req.estadoCalculado,
+      problemas: 0,
+      detalleProblemas: [],
     });
 
     const nuevo = await pedido.save();
-
     res.status(201).json(nuevo);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -28,16 +27,25 @@ const createPedido = async (req, res) => {
 const updatePedido = async (req, res) => {
   try {
     const { id } = req.params;
-    const pedido = await Pedido.findByIdAndUpdate(
+    const actualizado = await Pedido.findByIdAndUpdate(
       id,
-      { ...req.body, problemas: req.problemas.length, detalleProblemas: req.problemas, estado: req.estadoCalculado },
+      {
+        ...req.body,
+        estado: req.estadoCalculado,
+        problemas: 0,
+        detalleProblemas: [],
+      },
       { new: true }
     );
-    res.json(pedido);
+
+    if (!actualizado) {
+      return res.status(404).json({ error: "Pedido no encontrado" });
+    }
+
+    res.json(actualizado);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
-    catch (error) {
-      res.status(400).json({ error: error.message });
-     }
 };
 const updateEstado = async (req, res) => {
   try {

@@ -6,7 +6,7 @@ require('dotenv').config();
 
 // --- Importación de Rutas ---
 const edificioRouter = require('./routes/edificioRoutes');
-const laboratorioRouter = require('./routes/laboratoriotRoutes');
+const laboratorioRouter = require('./routes/laboratorioRoutes');
 const equipoRouter = require('./routes/equipoRoutes');
 const pedidoRouter = require('./routes/pedidoRoutes');
 

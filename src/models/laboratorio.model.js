@@ -47,6 +47,16 @@ const laboratorioSchema = new mongoose.Schema(
     }
 );
 
+/**
+ * Virtual para saber que equipos fijos tiene el laboratorio
+ */
+laboratorioSchema.virtual("equiposFijos", {
+  ref: "Equipo",
+  localField: "_id",
+  foreignField: "laboratorioId",
+  match: { esFijo: true },
+});
+
 const Laboratorio = mongoose.model("Laboratorio", laboratorioSchema);
 
 module.exports = Laboratorio;

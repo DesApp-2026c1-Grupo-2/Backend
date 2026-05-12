@@ -16,12 +16,6 @@ const edificioSchema = new mongoose.Schema(
       trim: true,
       maxlength: 200,
     },
-
-    cantidadAulas: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
   },
   {
     timestamps: true,
@@ -39,12 +33,13 @@ const edificioSchema = new mongoose.Schema(
 );
 
 /**
- * 🔹 Virtual (relación inversa)
+ * Virtual para contar laboratorios
  */
-edificioSchema.virtual("laboratorios", {
+edificioSchema.virtual("cantidadLaboratorios", {
   ref: "Laboratorio",
   localField: "_id",
   foreignField: "edificioId",
+  count: true,
 });
 
 const Edificio = mongoose.model("Edificio", edificioSchema);

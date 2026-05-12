@@ -56,7 +56,11 @@ const obtenerLaboratoriosDisponibles = async (req, res) => {
 const obtenerLaboratoriosPorEdificio = async (req, res) => {
     try {
         const { idEdificio } = req.params;
-        const laboratorios = await Laboratorio.find({ edificioId: idEdificio });
+
+        const laboratorios = await Laboratorio
+            .find({ edificioId: idEdificio })
+            .populate("equiposFijos", "nombre esFijo"); // Popula solo el nombre y si es fijo de los equipos, va solo en este get???
+
         res.status(200).json(laboratorios);
     } catch (error) {
         res.status(500).json({ message: error.message });

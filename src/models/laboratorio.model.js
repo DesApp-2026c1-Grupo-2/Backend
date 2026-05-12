@@ -55,6 +55,7 @@ laboratorioSchema.virtual("equiposFijos", {
   localField: "_id",
   foreignField: "laboratorioId",
   match: { esFijo: true },
+  select: "nombre -_id", // Solo selecciona el nombre del equipo, sin el _id
 });
 
 const Laboratorio = mongoose.model("Laboratorio", laboratorioSchema);

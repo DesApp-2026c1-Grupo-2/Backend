@@ -20,16 +20,6 @@ const edificioSchemaJoi = Joi.object({
       "string.empty": "La dirección es obligatoria",
       "string.max": "La dirección no puede superar los 200 caracteres",
     }),
-
-  cantidadAulas: Joi.number()
-    .integer()
-    .min(0)
-    .required()
-    .messages({
-      "number.base": "La cantidad de aulas debe ser un número",
-      "number.integer": "La cantidad de aulas debe ser un entero",
-      "number.min": "La cantidad de aulas no puede ser negativa",
-    }),
 });
 
 module.exports = edificioSchemaJoi;

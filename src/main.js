@@ -9,6 +9,7 @@ const edificioRouter = require('./routes/edificioRoutes');
 const laboratorioRouter = require('./routes/laboratorioRoutes');
 const equipoRouter = require('./routes/equipoRoutes');
 const pedidoRouter = require('./routes/pedidoRoutes');
+const usuarioRouter = require('./routes/usuarioRoutes');
 
 // Middlewares
 app.use(cors());
@@ -20,6 +21,12 @@ app.use('/edificio', edificioRouter);
 app.use('/laboratorio', laboratorioRouter);
 app.use('/equipo', equipoRouter);
 app.use('/pedido', pedidoRouter);
+app.use('/usuarios', usuarioRouter);
+
+
+
+
+
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI
 
@@ -38,5 +45,7 @@ app.listen(PORT, () => {
 
 //test
 const { seedPedidos } = require('./seed/pedido.seed.js');
+const { seedUsuarios } = require('./seed/usuario.seed.js');
 
 seedPedidos();
+seedUsuarios();

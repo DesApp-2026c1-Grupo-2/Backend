@@ -9,6 +9,11 @@ const equipoSchema = new mongoose.Schema(
       minlength: 2,
       maxlength: 100,
     },
+    codigo: {
+      type: String,
+      required: true,
+      unique: true,
+    },
     tipo: {
       type: String,
       required: true,
@@ -23,7 +28,7 @@ const equipoSchema = new mongoose.Schema(
       enum: [
         "disponible",
         "reservado",
-        "en mantenimiento",
+        "mantenimiento",
         "fuera de servicio",
       ],
       default: "disponible",
@@ -54,12 +59,14 @@ const equipoSchema = new mongoose.Schema(
 );
 
 equipoSchema.pre("save", function () {
-  if (this.esFijo && !this.laboratorioId) {
-    throw new Error("Un equipo fijo debe tener laboratorioId asignado");
-  }
+  if (this.isModified("esFijo") || this.isModified("laboratorioId")) {
+    if (this.esFijo && !this.laboratorioId) {
+      throw new Error("Un equipo fijo debe tener laboratorioId asignado");
+    }
 
-  if (!this.esFijo && this.laboratorioId) {
-    throw new Error("Un equipo móvil no debe tener laboratorioId");
+    if (!this.esFijo && this.laboratorioId) {
+      throw new Error("Un equipo móvil no debe tener laboratorioId");
+    }
   }
 });
 

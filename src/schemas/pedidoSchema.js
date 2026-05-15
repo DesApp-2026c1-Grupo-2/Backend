@@ -38,7 +38,7 @@ const pedidoSchemaJoi = Joi.object({
     estado: Joi.string().valid("Pendiente", "En Revisión", "Aceptado", "Rechazado").default("Pendiente"),
     recursos: Joi.array().items(recursoSchemaJoi).default([]).messages({
         "array.base": "Los recursos deben ser un arreglo",
-    })  ,
+    }),
     problemas: Joi.number().default(0).messages({
         "number.base": "La cantidad de problemas debe ser un número",
     }),
@@ -46,3 +46,5 @@ const pedidoSchemaJoi = Joi.object({
         "array.base": "El detalle de problemas debe ser un arreglo de cadenas",
     }),
 });
+
+module.exports = pedidoSchemaJoi;

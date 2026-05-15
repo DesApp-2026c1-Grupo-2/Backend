@@ -6,11 +6,12 @@ const { crearLaboratorio, obtenerLaboratorios, obtenerLaboratorioPorId, obtenerL
 // C: Crear un nuevo laboratorio
 router.post('/', crearLaboratorio);
 
-// R: Obtener todos los laboratorios 
-router.get('/', obtenerLaboratorios);
-
 // R: Obtener todos los laboratorios disponibles
 router.get('/disponibles', obtenerLaboratoriosDisponibles);
+router.get('/disponibles-labs', obtenerLaboratoriosDisponibles);
+
+// R: Obtener todos los laboratorios 
+router.get('/', obtenerLaboratorios);
 
 // R: Obtener todos los laboraorios de un edificio específico
 router.get('/edificio/:idEdificio', obtenerLaboratoriosPorEdificio);

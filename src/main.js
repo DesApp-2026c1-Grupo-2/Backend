@@ -15,6 +15,7 @@ const loteRouter = require('./routes/loteRoutes');
 const recetaReactivoRouter = require('./routes/recetaReactivoRoutes');
 const actividadRouter = require('./routes/actividadRoutes');
 
+const { obtenerLaboratoriosDisponibles } = require('./controllers/laboratorioControllers');
 
 // Middlewares
 app.use(cors());
@@ -36,27 +37,24 @@ app.use('/actividades', actividadRouter);
 
 
 
+app.get('/laboratorios/disponibles', obtenerLaboratoriosDisponibles);
+app.get('/laboratorios/disponibles-check', obtenerLaboratoriosDisponibles);
+app.get('/__backend-test__', (req, res) => res.json({ok: true}));
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI
 
 
+const { seedLaboratorios } = require('./seed/laboratorio.seed.js');
+
 mongoose.connect(MONGO_URI)
-  .then(() => {
+  .then(async () => {
     console.log("Conectado a MongoDB correctamente");
+    await seedLaboratorios();
   })
   .catch((err) => {
     console.error(" Error conectando a MongoDB:", err);
   });
 
 app.listen(PORT, () => {
-    console.log('Servidor corriendo en el puerto ' + PORT)
-})
-
-//test
-const { seedPedidos } = require('./seed/pedido.seed.js');
-const { seedUsuarios } = require('./seed/usuario.seed.js');
-const { seedInventario } = require('./seed/inventario.seed.js');
-
-seedPedidos();
-seedUsuarios();
-seedInventario();
+  console.log('Servidor corriendo en el puerto ' + PORT);
+});

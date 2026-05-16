@@ -4,7 +4,7 @@ const recursoSchema = new mongoose.Schema({
   recursoId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
-    refPath: "tipoRecurso", // Permite popular dinámicamente entre Equipo e Item
+    refPath: "recursos.tipoRecurso", // Permite popular dinámicamente entre Equipo e Item
   },
   tipoRecurso: {
     type: String,

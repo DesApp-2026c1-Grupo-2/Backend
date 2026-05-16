@@ -39,7 +39,7 @@ const seedEquipos = async () => {
         codigo: "EQ-ESP-001",
         tipo: "Espectrofotómetro",
         esFijo: true,
-        estado: "en mantenimiento",
+        estado: "mantenimiento",
         edificioId: edificio._id,
         laboratorioId: laboratorio ? laboratorio._id : undefined
       }

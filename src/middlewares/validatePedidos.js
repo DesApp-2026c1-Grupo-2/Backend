@@ -1,111 +1,84 @@
 const Pedido = require("../models/pedido.model");
 const Laboratorio = require("../models/laboratorio.model");
 const Equipo = require("../models/equipo.model");
-const pedidoSchemaJoi = require("../schemas/pedidoSchema");
-
-const equiposDisponibles = {
-  "Micropipetas P200": 10,
-  "Espectrofotómetro UV": 2,
-  "Centrífuga de mesa": 3,
-};
-
-const materialesStock = {
-  "Tubos eppendorf": 50,
-  "Pipetas": 100,
-};
-
-const reactivosStock = {
-  "Buffer de lisis": 20,
-  "Ácido nítrico": 20,
-  "Colorante": 30,
-};
-
-const escapeRegex = (value = "") => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-const normalizeLaboratorioNombre = (nombre = "") =>
-  nombre.replace(/\(.*\)$/, "").trim();
+const Item = require("../models/item.model");
+const Lote = require("../models/lote.model");
 
 const validarPedido = async (req, res, next) => {
   try {
     const data = req.body;
-    const problemas = [];
+    const detalleProblemas = [];
 
-    const { error } = pedidoSchemaJoi.validate(data, { abortEarly: false });
-    if (error) {
-      return res.status(400).json({ errores: error.details.map((d) => d.message) });
+    // 1. Construir fechaHora a partir de fecha y hora si es necesario
+    let fechaHora;
+    if (data.fecha && data.hora) {
+      fechaHora = new Date(`${data.fecha}T${data.hora}`);
+    } else if (data.fechaHora) {
+      fechaHora = new Date(data.fechaHora);
     }
 
-    const providedLabName = data.laboratorio;
-    const normalizedLabName = normalizeLaboratorioNombre(providedLabName);
-
-    let lab = await Laboratorio.findOne({ nombre: providedLabName });
-    if (!lab && normalizedLabName !== providedLabName) {
-      lab = await Laboratorio.findOne({ nombre: normalizedLabName });
+    if (!fechaHora || isNaN(fechaHora.getTime())) {
+      return res.status(400).json({ error: "La fecha y hora proporcionadas son inválidas" });
     }
-    if (!lab) {
-      lab = await Laboratorio.findOne({ nombre: { $regex: `^${escapeRegex(normalizedLabName)}`, $options: "i" } });
-    }
+    
+    // Exponemos la fecha construida por si se necesita más adelante
+    req.body.fechaHora = fechaHora;
 
-    if (!lab) {
-      return res.status(400).json({ errores: ["El laboratorio no existe"] });
-    }
-
-    if (lab.estado !== "disponible") {
-      problemas.push(`El laboratorio '${lab.nombre}' no está disponible actualmente`);
-    }
-
-    if (data.alumnos > lab.capacidad) {
-      problemas.push(`El laboratorio ${lab.nombre} tiene capacidad máxima de ${lab.capacidad} alumnos`);
-    }
-
+    // 2. Verificar que no haya conflicto de horario en el laboratorio
     const filtroConflicto = {
-      laboratorio: lab.nombre,
-      fecha: data.fecha,
-      hora: data.hora,
+      laboratorio: data.laboratorio,
+      fechaHora: fechaHora,
       estado: { $ne: "Rechazado" },
     };
-
-    if (req.params.id) {
-      filtroConflicto._id = { $ne: req.params.id };
-    }
-
     const existe = await Pedido.findOne(filtroConflicto);
+
     if (existe) {
-      problemas.push("El laboratorio ya está ocupado en ese horario");
+      detalleProblemas.push("El laboratorio ya está ocupado en ese horario");
     }
 
-    for (const recurso of data.recursos || []) {
-      if (recurso.tipo === "Equipo") {
-        const cantidadDisponibleDB = await Equipo.countDocuments({
-          nombre: recurso.nombre,
-          estado: "disponible",
-        });
-        const cantidadDisponible =
-          cantidadDisponibleDB > 0 ? cantidadDisponibleDB : equiposDisponibles[recurso.nombre] || 0;
+    // 3. Validar existencia y capacidad del laboratorio
+    const lab = await Laboratorio.findById(data.laboratorio);
+    if (!lab) {
+      detalleProblemas.push("El laboratorio solicitado no existe en la base de datos.");
+    } else if (data.alumnos > lab.capacidad) {
+      detalleProblemas.push(`El laboratorio no tiene capacidad suficiente (Máximo: ${lab.capacidad} alumnos).`);
+    }
 
-        if (cantidadDisponible < recurso.cantidad) {
-          problemas.push(`No hay suficientes equipos disponibles para ${recurso.nombre}`);
+    // 4. Validar existencia y disponibilidad real de los recursos
+    if (data.recursos && Array.isArray(data.recursos)) {
+      for (const r of data.recursos) {
+        if (r.tipoRecurso === "Equipo") {
+          const equipo = await Equipo.findById(r.recursoId);
+          if (!equipo) {
+            detalleProblemas.push("Uno de los equipos solicitados no existe.");
+          } else if (equipo.estado !== "disponible") {
+            // Nota: Podrías validar también la cantidad si manejas "modelos" de equipos en lugar de instancias únicas,
+            // pero asumiendo que un Equipo representa un objeto físico, chequeamos su estado.
+            detalleProblemas.push(`El equipo '${equipo.nombre}' no está disponible (Estado actual: ${equipo.estado}).`);
+          }
         }
-      }
 
-      if (recurso.tipo === "Material") {
-        if (!materialesStock[recurso.nombre] || materialesStock[recurso.nombre] < recurso.cantidad) {
-          problemas.push(`Stock insuficiente de material: ${recurso.nombre}`);
-        }
-      }
-
-      if (recurso.tipo === "Reactivo") {
-        if (!reactivosStock[recurso.nombre] || reactivosStock[recurso.nombre] < recurso.cantidad) {
-          problemas.push(`Stock insuficiente de reactivo: ${recurso.nombre}`);
+        if (r.tipoRecurso === "Item") {
+          const item = await Item.findById(r.recursoId);
+          if (!item) {
+            detalleProblemas.push("Uno de los ítems solicitados no existe.");
+          } else {
+            // Delegamos el cálculo del stock real al modelo de Lote
+            const stockDisponible = await Lote.calcularStockDisponible(r.recursoId);
+            if (stockDisponible < r.cantidad) {
+              detalleProblemas.push(
+                `Stock insuficiente de '${item.nombre}'. Solicitado: ${r.cantidad}, Disponible: ${stockDisponible}.`
+              );
+            }
+          }
         }
       }
     }
 
-    if (problemas.length > 0) {
-      return res.status(400).json({ errores: problemas });
-    }
+    req.detalleProblemas = detalleProblemas;
+    req.estadoCalculado =
+      detalleProblemas.length > 0 ? "En Revisión" : "Pendiente";
 
-    req.estadoCalculado = "Pendiente";
     next();
   } catch (error) {
     res.status(500).json({ error: error.message });

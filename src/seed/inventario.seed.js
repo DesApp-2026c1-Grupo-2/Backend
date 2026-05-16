@@ -3,7 +3,7 @@ const Item = require("../models/item.model");
 const Lote = require("../models/lote.model");
 const Actividad = require("../models/actividad.model");
 const RecetaReactivo = require("../models/recetaReactivo.model");
-const ProduccionReactivo = require("../models/pruduccionReactivo.model");
+const ProduccionReactivo = require("../models/produccionReactivo.model");
 
 exports.seedInventario = async () => {
   try {

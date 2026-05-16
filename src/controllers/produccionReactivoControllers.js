@@ -1,4 +1,4 @@
-const ProduccionReactivo = require("../models/pruduccionReactivo.model");
+const ProduccionReactivo = require("../models/produccionReactivo.model");
 
 // C: Crear un nuevo registro de producción de reactivo
 const createProduccionReactivo = async (req, res) => {

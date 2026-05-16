@@ -2,7 +2,7 @@
   "name": "desaappbackend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/main.js",
   "scripts": {
     "dev": "nodemon src/main.js",
     "seed": "node src/seed/index.js",
@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "\u0016https://github.com/DesApp-2026c1-Grupo-2/Backend.git"
+    "url": "https://github.com/DesApp-2026c1-Grupo-2/Backend.git"
   },
   "author": "",
   "license": "ISC",

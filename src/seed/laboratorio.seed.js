@@ -37,7 +37,6 @@ const seedLaboratorios = async () => {
       edificio = await Edificio.create({
         nombre: edificioNombre,
         direccion: "Av. Principal 123",
-        cantidadAulas: 5,
       });
     }
 

@@ -43,7 +43,7 @@ const getItems = async (req, res) => {
     }
     
     // Calculamos el stock real sumando los lotes disponibles
-    const stockDisponible = await inventarioService.calcularStockDisponible(id);
+    const stockDisponible = await Lote.calcularStockDisponible(id);
     
     return res.status(200).json({
       ...item.toObject(),

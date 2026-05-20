@@ -1,6 +1,13 @@
 const { Router } = require('express')
 const router = Router()
-const { crearLaboratorio, obtenerLaboratorios, obtenerLaboratorioPorId, obtenerLaboratoriosDisponibles, obtenerLaboratoriosPorEdificio } = require('../controllers/laboratorioControllers');
+const { 
+    crearLaboratorio, 
+    obtenerLaboratorios, 
+    obtenerLaboratorioPorId, 
+    obtenerLaboratoriosDisponibles, 
+    obtenerLaboratoriosPorEdificio,
+    actualizarEstadoLaboratorio
+} = require('../controllers/laboratorioControllers');
 
 
 // C: Crear un nuevo laboratorio
@@ -18,5 +25,8 @@ router.get('/edificio/:idEdificio', obtenerLaboratoriosPorEdificio);
 
 // R: Obtener un laboratorio por su ID 
 router.get('/:idLaboratorio', obtenerLaboratorioPorId);
+
+// U: Actualizar el estado de un laboratorio
+router.patch('/:idLaboratorio/estado', actualizarEstadoLaboratorio);
 
 module.exports = router;

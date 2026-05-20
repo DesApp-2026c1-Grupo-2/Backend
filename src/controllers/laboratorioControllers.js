@@ -67,10 +67,39 @@ const obtenerLaboratoriosPorEdificio = async (req, res) => {
     }
 };
 
+// U: Modificar el estado de un laboratorio
+const actualizarEstadoLaboratorio = async (req, res) => {
+    try {
+        const { idLaboratorio } = req.params;
+        const { estado } = req.body;
+
+        // Validación rápida del estado contra el enum definido
+        const estadosValidos = ["disponible", "reservado", "en mantenimiento", "fuera de servicio"];
+        if (!estadosValidos.includes(estado)) {
+            return res.status(400).json({ message: "Estado no válido. Los estados permitidos son: " + estadosValidos.join(', ') });
+        }
+
+        const laboratorioActualizado = await Laboratorio.findByIdAndUpdate(
+            idLaboratorio,
+            { estado },
+            { new: true, runValidators: true }
+        );
+
+        if (!laboratorioActualizado) {
+            return res.status(404).json({ message: "Laboratorio no encontrado" });
+        }
+
+        res.status(200).json(laboratorioActualizado);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
 module.exports = {
     crearLaboratorio,
     obtenerLaboratorios,
     obtenerLaboratorioPorId,
     obtenerLaboratoriosDisponibles,
-    obtenerLaboratoriosPorEdificio
+    obtenerLaboratoriosPorEdificio,
+    actualizarEstadoLaboratorio
 };

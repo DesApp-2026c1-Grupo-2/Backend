@@ -21,7 +21,7 @@ const crearLaboratorio = async (req, res) => {
 // R: Obtener todos los laboratorios
 const obtenerLaboratorios = async (req, res) => {
     try {
-        const laboratorios = await Laboratorio.find();
+        const laboratorios = await Laboratorio.find( { estado: { $ne: "eliminado" } } ); // Excluir laboratorios "fuera de servicio"
         res.status(200).json(laboratorios);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -32,7 +32,7 @@ const obtenerLaboratorios = async (req, res) => {
 const obtenerLaboratorioPorId = async (req, res) => {
     try {
         const { idLaboratorio } = req.params;
-        const laboratorio = await Laboratorio.findById(idLaboratorio);
+        const laboratorio = await Laboratorio.findOne({ _id: idLaboratorio, estado: { $ne: "eliminado" } });
         if (!laboratorio) {
             return res.status(404).json({ message: "Laboratorio no encontrado" });
         }
@@ -58,7 +58,7 @@ const obtenerLaboratoriosPorEdificio = async (req, res) => {
         const { idEdificio } = req.params;
 
         const laboratorios = await Laboratorio
-            .find({ edificioId: idEdificio })
+            .find({ edificioId: idEdificio , estado: { $ne: "eliminado" } })
             .populate("equiposFijos"); // va solo en este get???
 
         res.status(200).json(laboratorios);
@@ -94,12 +94,46 @@ const actualizarEstadoLaboratorio = async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 };
-
+const actualizarLaboratorio = async (req, res) => {
+    try {
+        const { idLaboratorio } = req.params;
+        const { nombre, edificioId, capacidad, tipo, estado } = req.body;
+        const laboratorioActualizado = await Laboratorio.findByIdAndUpdate(
+            idLaboratorio,
+            { nombre, edificioId, capacidad, tipo, estado },
+            { new: true, runValidators: true }
+        );
+        if (!laboratorioActualizado) {
+            return res.status(404).json({ message: "Laboratorio no encontrado" });
+        }
+        res.status(200).json(laboratorioActualizado);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+const eliminarLaboratorioLogico = async (req, res) => {
+    try {
+        const { idLaboratorio } = req.params;
+        const laboratorioEliminado = await Laboratorio.findByIdAndUpdate(
+            idLaboratorio,
+            { estado: "eliminado" },
+            { new: true }
+        );
+        if (!laboratorioEliminado) {
+            return res.status(404).json({ message: "Laboratorio no encontrado" });
+        }
+        res.status(200).json(laboratorioEliminado);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
 module.exports = {
     crearLaboratorio,
     obtenerLaboratorios,
     obtenerLaboratorioPorId,
     obtenerLaboratoriosDisponibles,
     obtenerLaboratoriosPorEdificio,
-    actualizarEstadoLaboratorio
+    actualizarEstadoLaboratorio,
+    actualizarLaboratorio,
+    eliminarLaboratorioLogico
 };

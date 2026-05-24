@@ -6,7 +6,9 @@ const {
     obtenerLaboratorioPorId, 
     obtenerLaboratoriosDisponibles, 
     obtenerLaboratoriosPorEdificio,
-    actualizarEstadoLaboratorio
+    actualizarEstadoLaboratorio,
+    actualizarLaboratorio,
+    eliminarLaboratorioLogico
 } = require('../controllers/laboratorioControllers');
 
 
@@ -28,5 +30,9 @@ router.get('/:idLaboratorio', obtenerLaboratorioPorId);
 
 // U: Actualizar el estado de un laboratorio
 router.patch('/:idLaboratorio/estado', actualizarEstadoLaboratorio);
+// U: Actualizar un laboratorio
+router.put('/:idLaboratorio', actualizarLaboratorio);
+// D: Eliminar un laboratorio (eliminación lógica)
+router.delete('/:idLaboratorio', eliminarLaboratorioLogico);
 
 module.exports = router;

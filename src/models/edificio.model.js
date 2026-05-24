@@ -9,7 +9,10 @@ const edificioSchema = new mongoose.Schema(
       minlength: 2,
       maxlength: 100,
     },
-
+    estado: {
+      type: Boolean,
+      default: true,
+    },
     direccion: {
       type: String,
       required: true,

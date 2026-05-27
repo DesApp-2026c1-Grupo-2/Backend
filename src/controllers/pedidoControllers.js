@@ -4,18 +4,34 @@ const Equipo = require("../models/equipo.model");
 const Item = require("../models/item.model");
 
 const getPedidos = async (req, res) => {
+
   try {
-    const pedidos = await Pedido.find()
+
+    const { uid, rol } = req.usuario;
+
+    let filtro = {};
+
+    // DOCENTE → solo sus pedidos
+    if (rol === "DOCENTE") {
+      filtro.docente = uid;
+    }
+
+    const pedidos = await Pedido.find(filtro)
       .populate("docente", "nombre apellido email")
       .populate("laboratorio", "nombre tipo")
       .populate({
         path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado", // Selecciona campos útiles sin importar si es Item o Equipo
+        select: "nombre tipo codigo esFijo estado",
       })
       .sort({ fechaHora: -1 });
+
     res.json(pedidos);
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+
+    res.status(500).json({
+      error: error.message
+    });
   }
 };
 

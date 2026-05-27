@@ -1,5 +1,6 @@
 const Usuario = require('../models/usuario.model');
 const bcrypt = require('bcrypt');
+const jwt = require("jsonwebtoken");
 
 /**
  * Obtener todos los usuarios
@@ -103,29 +104,56 @@ const deleteUsuario = async (req, res) => {
  */
 const login = async (req, res) => {
   try {
+
     const { email, password } = req.body;
 
-    // 1. Verificar si el usuario existe (buscamos por email en este caso)
+    // Buscar usuario
     const usuario = await Usuario.findOne({ email });
+
     if (!usuario) {
-      // Es buena práctica de seguridad devolver un mensaje genérico
-      return res.status(401).json({ message: 'Credenciales inválidas' });
+      return res.status(401).json({
+        message: 'Credenciales inválidas'
+      });
     }
 
-    // 2. Verificar si la contraseña es correcta comparándola con el hash
-    const isMatch = await bcrypt.compare(password, usuario.password);
+    // Comparar password
+    const isMatch = await bcrypt.compare(
+      password,
+      usuario.password
+    );
+
     if (!isMatch) {
-      return res.status(401).json({ message: 'Credenciales inválidas' });
+      return res.status(401).json({
+        message: 'Credenciales inválidas'
+      });
     }
 
-    // 3. Si todo está bien, devolvemos el usuario (la contraseña se ocultará gracias a toJSON en el modelo)
-    // Nota: Aquí es donde idealmente generarías un token JWT para mantener la sesión
+    // GENERAR JWT
+    const token = jwt.sign(
+      {
+        id: usuario._id,
+        email: usuario.email
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "7d"
+      }
+    );
+
+    // RESPUESTA
     res.status(200).json({
       message: 'Login exitoso',
-      usuario
+      usuario,
+      token
     });
+
   } catch (error) {
-    res.status(500).json({ message: 'Error al intentar iniciar sesión', error: error.message });
+
+    res.status(500).json({
+      message: 'Error al intentar iniciar sesión',
+      error: error.message
+    });
+
   }
 };
 

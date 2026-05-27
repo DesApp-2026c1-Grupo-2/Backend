@@ -1,6 +1,8 @@
 const { Router } = require('express');
 const router = Router();
 
+const validarJWT = require('../middlewares/validateUsuario');
+
 const {
   getUsuarios,
   getUsuarioById,
@@ -14,10 +16,14 @@ const {
 router.post('/login', login);
 
 // Rutas CRUD para Usuarios
-router.get('/', getUsuarios);
-router.get('/:id', getUsuarioById);
-router.post('/', createUsuario);
-router.put('/:id', updateUsuario);
-router.delete('/:id', deleteUsuario);
+router.get('/', validarJWT, getUsuarios);
+
+router.get('/:id', validarJWT, getUsuarioById);
+
+router.post('/', validarJWT, createUsuario);
+
+router.put('/:id', validarJWT, updateUsuario);
+
+router.delete('/:id', validarJWT, deleteUsuario);
 
 module.exports = router;

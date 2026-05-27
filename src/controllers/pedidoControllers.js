@@ -36,8 +36,13 @@ const getPedidos = async (req, res) => {
 };
 
 const getPedidoById = async (req, res) => {
+
   try {
+
     const { id } = req.params;
+
+    const { uid, rol } = req.usuario;
+
     const pedido = await Pedido.findById(id)
       .populate("docente", "nombre apellido email")
       .populate("laboratorio", "nombre tipo")
@@ -46,13 +51,31 @@ const getPedidoById = async (req, res) => {
         select: "nombre tipo codigo esFijo estado",
       });
 
+    // No existe
     if (!pedido) {
-      return res.status(404).json({ error: "Pedido no encontrado" });
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
+    }
+
+    // Si es docente → verificar dueño
+    if (
+      rol === "DOCENTE" &&
+      pedido.docente._id.toString() !== uid
+    ) {
+
+      return res.status(403).json({
+        error: "No autorizado"
+      });
     }
 
     res.json(pedido);
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+
+    res.status(500).json({
+      error: error.message
+    });
   }
 };
 

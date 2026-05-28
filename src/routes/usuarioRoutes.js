@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const router = Router();
 
-const validarJWT = require('../middlewares/validateJWT.js');
+const { validarJWT } = require('../middlewares/validateJWT.js');
 
 const {
   getUsuarios,

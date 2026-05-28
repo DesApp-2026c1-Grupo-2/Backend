@@ -1,21 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-
-usuarioSchema.pre('save', async function(next) {
-
-  // Evita re-hashear si no cambió
-  if (!this.isModified('password')) {
-    return next();
-  }
-
-  // Hash
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-
-  next();
-});
-
 const usuarioSchema = new mongoose.Schema({
   nombre: {
     type: String,
@@ -61,6 +46,20 @@ const usuarioSchema = new mongoose.Schema({
 }, {
   timestamps: true, // Genera automáticamente los campos createdAt y updatedAt
   versionKey: false // Evita que MongoDB agregue el campo interno __v
+});
+
+usuarioSchema.pre('save', async function(next) {
+
+  // Evita re-hashear si no cambió
+  if (!this.isModified('password')) {
+    return next();
+  }
+
+  // Hash
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+
+  next();
 });
 
 // Método para limpiar la respuesta: evita que la contraseña viaje al frontend

@@ -32,4 +32,22 @@ const validarJWT = (req, res, next) => {
   }
 };
 
-module.exports = validarJWT;
+const validarRol = (...rolesPermitidos) => {
+
+  return (req, res, next) => {
+
+    const { rol } = req.usuario;
+
+    if (!rolesPermitidos.includes(rol)) {
+
+      return res.status(403).json({
+        error: "No autorizado"
+      });
+    }
+
+    next();
+  };
+};
+
+
+module.exports = { validarJWT, validarRol };

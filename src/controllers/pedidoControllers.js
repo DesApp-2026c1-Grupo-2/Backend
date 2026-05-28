@@ -4,24 +4,45 @@ const Equipo = require("../models/equipo.model");
 const Item = require("../models/item.model");
 
 const getPedidos = async (req, res) => {
+
   try {
-    const pedidos = await Pedido.find()
+
+    const { uid, rol } = req.usuario;
+
+    let filtro = {};
+
+    // DOCENTE → solo sus pedidos
+    if (rol === "DOCENTE") {
+      filtro.docente = uid;
+    }
+
+    const pedidos = await Pedido.find(filtro)
       .populate("docente", "nombre apellido email")
       .populate("laboratorio", "nombre tipo")
       .populate({
         path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado", // Selecciona campos útiles sin importar si es Item o Equipo
+        select: "nombre tipo codigo esFijo estado",
       })
       .sort({ fechaHora: -1 });
+
     res.json(pedidos);
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+
+    res.status(500).json({
+      error: error.message
+    });
   }
 };
 
 const getPedidoById = async (req, res) => {
+
   try {
+
     const { id } = req.params;
+
+    const { uid, rol } = req.usuario;
+
     const pedido = await Pedido.findById(id)
       .populate("docente", "nombre apellido email")
       .populate("laboratorio", "nombre tipo")
@@ -30,13 +51,31 @@ const getPedidoById = async (req, res) => {
         select: "nombre tipo codigo esFijo estado",
       });
 
+    // No existe
     if (!pedido) {
-      return res.status(404).json({ error: "Pedido no encontrado" });
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
+    }
+
+    // Si es docente → verificar dueño
+    if (
+      rol === "DOCENTE" &&
+      pedido.docente._id.toString() !== uid
+    ) {
+
+      return res.status(403).json({
+        error: "No autorizado"
+      });
     }
 
     res.json(pedido);
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+
+    res.status(500).json({
+      error: error.message
+    });
   }
 };
 

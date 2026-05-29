@@ -1,48 +1,66 @@
-const Pedido = require("../models/Pedido");
-const Equipo = require("../models/Equipo");
-const Lote = require("../models/Lote");
+const Pedido = require("../models/pedido.model");
+const Equipo = require("../models/equipo.model");
+const Lote = require("../models/lote.model");
 
-async function verificarConflictos(pedido) {
+const verificarConflictos = async (pedido) => {
   const conflictos = [];
 
-  for (const recurso of pedido.recursos) {
+  for (const r of pedido.recursos) {
+
+    const ref = r.modeloRef || r.tipoRecurso;
 
     // =========================
     // EQUIPOS
     // =========================
-    if (recurso.tipoRecurso === "Equipo") {
+    if (ref === "Equipo") {
 
-      const disponibles = await Equipo.countDocuments({
-        tipo: recurso.recursoId,
-        estado: "disponible",
-      });
+      const equipo = await Equipo.findById(r.recursoId);
 
-      if (disponibles < recurso.cantidad) {
-        conflictos.push(
-          `Solo hay ${disponibles} equipos disponibles para ${recurso.nombre}`
-        );
+      if (!equipo) {
+        conflictos.push({
+          tipo: "equipo_no_existente",
+          severidad: "alta",
+          mensaje: "El equipo solicitado no existe",
+        });
+
+        continue;
+      }
+
+      if (equipo.estado !== "disponible") {
+        conflictos.push({
+          tipo: "equipo_no_disponible",
+          severidad: "alta",
+          mensaje: `${equipo.nombre} no está disponible`,
+        });
       }
     }
 
     // =========================
     // ITEMS
     // =========================
-    if (recurso.tipoRecurso === "Item") {
+    if (ref === "Item") {
 
-      const stock = await Lote.calcularStockDisponible(
-        recurso.recursoId
-      );
+      const stockDisponible =
+        await Lote.calcularStockDisponible(r.recursoId);
 
-      if (stock < recurso.cantidad) {
-        conflictos.push(
-          `Stock insuficiente para ${recurso.nombre}. Disponible: ${stock}`
-        );
+      if (stockDisponible < r.cantidad) {
+
+        conflictos.push({
+          tipo: "stock_insuficiente",
+          severidad: "alta",
+          mensaje:
+            `Stock insuficiente para ${
+              r.recursoId?.nombre || "ítem"
+            }. ` +
+            `Solicitado: ${r.cantidad}. ` +
+            `Disponible: ${stockDisponible}.`
+        });
       }
     }
   }
 
   return conflictos;
-}
+};
 
 module.exports = {
   verificarConflictos,

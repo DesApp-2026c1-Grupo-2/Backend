@@ -2,6 +2,7 @@ const Pedido = require("../models/pedido.model");
 const Lote = require("../models/lote.model");
 const Equipo = require("../models/equipo.model");
 const Item = require("../models/item.model");
+const { verificarConflictos } = require("../services/pedidoConflictos");
 
 const getPedidos = async (req, res) => {
   try {
@@ -58,7 +59,12 @@ const getPedidoById = async (req, res) => {
       return res.status(403).json({ error: "No autorizado" });
     }
 
-    res.json(pedido);
+    const conflictos = await verificarConflictos(pedido);
+
+    res.json({
+      ...pedido.toObject(),
+      conflictos,
+    });
 
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -79,19 +85,17 @@ const aprobarPedido = async (req, res) => {
     }
 
     // 1. Doble verificación de disponibilidad antes de mutar (para evitar descuentos parciales)
-    for (const r of pedido.recursos) {
-      const ref = r.modeloRef || r.tipoRecurso; // Compatibilidad con el schema antiguo/nuevo
-      if (ref === "Equipo") {
-        const equipo = await Equipo.findById(r.recursoId);
-        if (!equipo || equipo.estado !== "disponible") {
-          return res.status(400).json({ error: `El equipo asociado al ID ${r.recursoId} no está disponible actualmente.` });
-        }
-      } else if (ref === "Item") {
-        const stockDisponible = await Lote.calcularStockDisponible(r.recursoId);
-        if (stockDisponible < r.cantidad) {
-          return res.status(400).json({ error: `Stock insuficiente para el ítem con ID ${r.recursoId}. Solicitado: ${r.cantidad}, Disponible: ${stockDisponible}.` });
-        }
-      }
+    const conflictos = await verificarConflictos(pedido);
+
+    const conflictosGraves = conflictos.filter(
+      c => c.severidad === "alta"
+    );
+
+    if (conflictosGraves.length > 0) {
+      return res.status(400).json({
+        error: "El pedido tiene conflictos",
+        conflictos,
+      });
     }
 
     // 2. Proceder con el descuento de stock en Lotes y reserva de Equipos

@@ -2,18 +2,18 @@ const Pedido = require("../models/pedido.model");
 const Lote = require("../models/lote.model");
 const Equipo = require("../models/equipo.model");
 const Item = require("../models/item.model");
+const { verificarConflictos } = require("../services/pedidoConflictos");
 
 const getPedidos = async (req, res) => {
-
   try {
 
-    const { uid, rol } = req.usuario;
+    const { id, rol } = req.usuario;
 
     let filtro = {};
 
     // DOCENTE → solo sus pedidos
     if (rol === "DOCENTE") {
-      filtro.docente = uid;
+      filtro.docente = id;
     }
 
     const pedidos = await Pedido.find(filtro)
@@ -36,12 +36,9 @@ const getPedidos = async (req, res) => {
 };
 
 const getPedidoById = async (req, res) => {
-
   try {
-
+    const { id: userId, rol } = req.usuario;
     const { id } = req.params;
-
-    const { uid, rol } = req.usuario;
 
     const pedido = await Pedido.findById(id)
       .populate("docente", "nombre apellido email")
@@ -51,31 +48,26 @@ const getPedidoById = async (req, res) => {
         select: "nombre tipo codigo esFijo estado",
       });
 
-    // No existe
     if (!pedido) {
-      return res.status(404).json({
-        error: "Pedido no encontrado"
-      });
+      return res.status(404).json({ error: "Pedido no encontrado" });
     }
 
-    // Si es docente → verificar dueño
     if (
       rol === "DOCENTE" &&
-      pedido.docente._id.toString() !== uid
+      pedido.docente._id.toString() !== userId
     ) {
-
-      return res.status(403).json({
-        error: "No autorizado"
-      });
+      return res.status(403).json({ error: "No autorizado" });
     }
 
-    res.json(pedido);
+    const conflictos = await verificarConflictos(pedido);
+
+    res.json({
+      ...pedido.toObject(),
+      conflictos,
+    });
 
   } catch (error) {
-
-    res.status(500).json({
-      error: error.message
-    });
+    res.status(500).json({ error: error.message });
   }
 };
 
@@ -93,19 +85,17 @@ const aprobarPedido = async (req, res) => {
     }
 
     // 1. Doble verificación de disponibilidad antes de mutar (para evitar descuentos parciales)
-    for (const r of pedido.recursos) {
-      const ref = r.modeloRef || r.tipoRecurso; // Compatibilidad con el schema antiguo/nuevo
-      if (ref === "Equipo") {
-        const equipo = await Equipo.findById(r.recursoId);
-        if (!equipo || equipo.estado !== "disponible") {
-          return res.status(400).json({ error: `El equipo asociado al ID ${r.recursoId} no está disponible actualmente.` });
-        }
-      } else if (ref === "Item") {
-        const stockDisponible = await Lote.calcularStockDisponible(r.recursoId);
-        if (stockDisponible < r.cantidad) {
-          return res.status(400).json({ error: `Stock insuficiente para el ítem con ID ${r.recursoId}. Solicitado: ${r.cantidad}, Disponible: ${stockDisponible}.` });
-        }
-      }
+    const conflictos = await verificarConflictos(pedido);
+
+    const conflictosGraves = conflictos.filter(
+      c => c.severidad === "alta"
+    );
+
+    if (conflictosGraves.length > 0) {
+      return res.status(400).json({
+        error: "El pedido tiene conflictos",
+        conflictos,
+      });
     }
 
     // 2. Proceder con el descuento de stock en Lotes y reserva de Equipos

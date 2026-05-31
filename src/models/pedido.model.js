@@ -55,6 +55,11 @@ const pedidoSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true,
+  },
 }, { 
   timestamps: true,
   strict: true,

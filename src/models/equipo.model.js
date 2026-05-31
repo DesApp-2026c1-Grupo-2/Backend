@@ -24,10 +24,8 @@ const equipoSchema = new mongoose.Schema(
     },
     estado: {
       type: String,
-      //Reservado deberia estar en una entidad a parte, por ahora lo dejo aca para hacer pruebas
       enum: [
         "disponible",
-        "reservado",
         "mantenimiento",
         "fuera de servicio",
       ],

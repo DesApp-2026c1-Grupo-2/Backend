@@ -3,6 +3,7 @@ const Laboratorio = require("../models/laboratorio.model");
 const Equipo = require("../models/equipo.model");
 const Item = require("../models/item.model");
 const Lote = require("../models/lote.model");
+const Reserva = require("../models/reserva.model");
 
 const validarPedido = async (req, res, next) => {
   try {
@@ -51,10 +52,20 @@ const validarPedido = async (req, res, next) => {
           const equipo = await Equipo.findById(r.recursoId);
           if (!equipo) {
             detalleProblemas.push("Uno de los equipos solicitados no existe.");
-          } else if (equipo.estado !== "disponible") {
-            // Nota: Podrías validar también la cantidad si manejas "modelos" de equipos en lugar de instancias únicas,
-            // pero asumiendo que un Equipo representa un objeto físico, chequeamos su estado.
-            detalleProblemas.push(`El equipo '${equipo.nombre}' no está disponible (Estado actual: ${equipo.estado}).`);
+          } else {
+            // Validación de disponibilidad temporal delegada a Reserva
+            const reservaOcupando = await Reserva.findOne({
+              fechaHora: fechaHora,
+              estado: { $in: ['Pendiente', 'En Curso'] },
+              "equiposReservados.equipoId": r.recursoId
+            });
+
+            if (reservaOcupando) {
+              detalleProblemas.push(`El equipo '${equipo.nombre}' ya se encuentra reservado en ese horario.`);
+            } else if (equipo.estado !== "disponible" && equipo.estado !== "reservado") {
+              // Validamos estados de inoperatividad reales (ej. Mantenimiento). Ignoramos 'reservado' por si hay legacy data.
+              detalleProblemas.push(`El equipo '${equipo.nombre}' no está operativo (Estado actual: ${equipo.estado}).`);
+            }
           }
         }
 

@@ -2,6 +2,7 @@ const Pedido = require("../models/pedido.model");
 const Equipo = require("../models/equipo.model");
 const Lote = require("../models/lote.model");
 const Laboratorio = require("../models/laboratorio.model");
+const Reserva = require("../models/reserva.model");
 
 const verificarConflictos = async (pedido) => {
   const conflictos = [];
@@ -31,8 +32,8 @@ const verificarConflictos = async (pedido) => {
       });
     }
 
+    // Retiramos el estado "reservado" obsoleto, evaluando inoperatividad real
     if (
-      laboratorio.estado === "reservado" ||
       laboratorio.estado === "en mantenimiento" ||
       laboratorio.estado === "fuera de servicio"
     ) {
@@ -87,11 +88,25 @@ const verificarConflictos = async (pedido) => {
         continue;
       }
 
-      if (equipo.estado !== "disponible") {
+      // Delegamos la verificación temporal de los equipos a la Reserva, ignorando al pedido actual
+      const reservaOcupando = await Reserva.findOne({
+        pedidoId: { $ne: pedido._id },
+        fechaHora: pedido.fechaHora,
+        estado: { $in: ['Pendiente', 'En Curso'] },
+        "equiposReservados.equipoId": r.recursoId
+      });
+
+      if (reservaOcupando) {
+        conflictos.push({
+          tipo: "equipo_reservado",
+          severidad: "alta",
+          mensaje: `El equipo '${equipo.nombre}' ya se encuentra reservado en ese horario.`,
+        });
+      } else if (equipo.estado !== "disponible" && equipo.estado !== "reservado") {
         conflictos.push({
           tipo: "equipo_no_disponible",
           severidad: "alta",
-          mensaje: `${equipo.nombre} no está disponible`,
+          mensaje: `El equipo '${equipo.nombre}' no está operativo (Estado actual: ${equipo.estado}).`,
         });
       }
     }

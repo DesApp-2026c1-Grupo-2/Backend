@@ -7,7 +7,7 @@ const jwt = require("jsonwebtoken");
  */
 const getUsuarios = async (req, res) => {
   try {
-    const usuarios = await Usuario.find();
+    const usuarios = await Usuario.find({ activo: { $ne: false } });
     res.status(200).json(usuarios);
   } catch (error) {
     res.status(500).json({ message: 'Error al obtener los usuarios', error: error.message });
@@ -20,7 +20,7 @@ const getUsuarios = async (req, res) => {
 const getUsuarioById = async (req, res) => {
   try {
     const { id } = req.params;
-    const usuario = await Usuario.findById(id);
+    const usuario = await Usuario.findOne({ _id: id, activo: { $ne: false } });
     
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
@@ -69,7 +69,11 @@ const updateUsuario = async (req, res) => {
 
     // { new: true } devuelve el documento actualizado
     // { runValidators: true } aplica las validaciones definidas en tu Schema (ej: enums y matches)
-    const usuarioActualizado = await Usuario.findByIdAndUpdate(id, datosActualizados, { new: true, runValidators: true });
+    const usuarioActualizado = await Usuario.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      datosActualizados,
+      { new: true, runValidators: true }
+    );
     
     if (!usuarioActualizado) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
@@ -87,13 +91,17 @@ const updateUsuario = async (req, res) => {
 const deleteUsuario = async (req, res) => {
   try {
     const { id } = req.params;
-    const usuarioEliminado = await Usuario.findByIdAndDelete(id);
+    const usuarioEliminado = await Usuario.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      { activo: false },
+      { new: true }
+    );
     
     if (!usuarioEliminado) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
     
-    res.status(200).json({ message: 'Usuario eliminado con éxito' });
+    res.status(200).json({ message: 'Usuario marcado como eliminado (borrado lógico)', usuario: usuarioEliminado });
   } catch (error) {
     res.status(500).json({ message: 'Error al eliminar el usuario', error: error.message });
   }
@@ -107,8 +115,8 @@ const login = async (req, res) => {
 
     const { email, password } = req.body;
 
-    // Buscar usuario
-    const usuario = await Usuario.findOne({ email });
+    // Buscar usuario activo
+    const usuario = await Usuario.findOne({ email, activo: { $ne: false } });
 
     if (!usuario) {
       return res.status(401).json({

@@ -30,6 +30,11 @@ const usuarioSchema = new mongoose.Schema({
     sparse: true, // Permite valores nulos (ej: si un Admin no tiene legajo), pero si se ingresa, debe ser único
     trim: true
   },
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
   rol: {
     type: String,
     enum: {

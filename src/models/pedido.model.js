@@ -107,4 +107,4 @@ pedidoSchema.pre("save", function() {
   }
 });
 
-module.exports = mongoose.model("pedidos", pedidoSchema);
+module.exports = mongoose.model("Pedido", pedidoSchema);

@@ -22,6 +22,23 @@ const recursoSchema = new mongoose.Schema({
   }]
 });
 
+const tareaSchema = new mongoose.Schema({
+  descripcion: {
+    type: String,
+    required: true,
+  },
+  estado: {
+    type: String,
+    enum: ["Pendiente", "En Proceso", "Completada"],
+    default: "Pendiente",
+  },
+  tipo: {
+    type: String,
+    enum: ["Logistica", "Preparacion", "Compra", "General"],
+    default: "General",
+  }
+});
+
 const pedidoSchema = new mongoose.Schema({
   materia: {
     type: String,
@@ -55,6 +72,9 @@ const pedidoSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+  checklist: {
+    type: [tareaSchema],
+    default: [],
   activo: {
     type: Boolean,
     default: true,

@@ -41,7 +41,7 @@ exports.seedInventario = async () => {
       { itemId: tubo._id, cantidadDisponible: 50, ubicacion: 'Estante A1', estado: 'disponible' },
       { itemId: agua._id, cantidadDisponible: 1000, ubicacion: 'Armario Reactivos', estado: 'disponible', fechaVencimiento: new Date('2028-01-01') },
       { itemId: sal._id, cantidadDisponible: 500, ubicacion: 'Armario Reactivos', estado: 'disponible' },
-      { itemId: solucionSalina._id, cantidadDisponible: 200, ubicacion: 'Refrigerador 1', estado: 'reservado', actividadId: actPractica._id }
+      { itemId: solucionSalina._id, cantidadDisponible: 200, ubicacion: 'Refrigerador 1', estado: 'en_uso', actividadId: actPractica._id }
     ]);
 
     // 5. Crear la Receta Maestra para el Reactivo

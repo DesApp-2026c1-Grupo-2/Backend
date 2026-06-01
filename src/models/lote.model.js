@@ -14,7 +14,7 @@ const loteSchema = new mongoose.Schema({
   ubicacion: { type: String, required: true },
   estado: { 
     type: String, 
-    enum: ['disponible', 'reservado', 'en_uso', 'descartado'], 
+    enum: ['disponible', 'en_uso', 'descartado'], 
     default: 'disponible' 
   },
   fechaCreacion: { type: Date, default: Date.now },

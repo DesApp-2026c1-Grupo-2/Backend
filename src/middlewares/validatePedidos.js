@@ -3,6 +3,7 @@ const Laboratorio = require("../models/laboratorio.model");
 const Equipo = require("../models/equipo.model");
 const Item = require("../models/item.model");
 const Lote = require("../models/lote.model");
+const Reserva = require("../models/reserva.model");
 
 const construirFechaHora = (data) => {
   if (data.fecha && data.hora) {
@@ -97,10 +98,45 @@ const validarRecursos = async (data) => {
       continue;
     }
 
-    if (recurso.tipoRecurso === "Item") {
-      const problema = await validarRecursoItem(recurso);
-      if (problema) detalles.push(problema);
-      continue;
+    // 4. Validar existencia y disponibilidad real de los recursos
+    if (data.recursos && Array.isArray(data.recursos)) {
+      for (const r of data.recursos) {
+        if (r.tipoRecurso === "Equipo") {
+          const equipo = await Equipo.findById(r.recursoId);
+          if (!equipo) {
+            detalleProblemas.push("Uno de los equipos solicitados no existe.");
+          } else {
+            // Validación de disponibilidad temporal delegada a Reserva
+            const reservaOcupando = await Reserva.findOne({
+              fechaHora: fechaHora,
+              estado: { $in: ['Pendiente', 'En Curso'] },
+              "equiposReservados.equipoId": r.recursoId
+            });
+
+            if (reservaOcupando) {
+              detalleProblemas.push(`El equipo '${equipo.nombre}' ya se encuentra reservado en ese horario.`);
+            } else if (equipo.estado !== "disponible" && equipo.estado !== "reservado") {
+              // Validamos estados de inoperatividad reales (ej. Mantenimiento). Ignoramos 'reservado' por si hay legacy data.
+              detalleProblemas.push(`El equipo '${equipo.nombre}' no está operativo (Estado actual: ${equipo.estado}).`);
+            }
+          }
+        }
+
+        if (r.tipoRecurso === "Item") {
+          const item = await Item.findById(r.recursoId);
+          if (!item) {
+            detalleProblemas.push("Uno de los ítems solicitados no existe.");
+          } else {
+            // Delegamos el cálculo del stock real al modelo de Lote
+            const stockDisponible = await Lote.calcularStockDisponible(r.recursoId);
+            if (stockDisponible < r.cantidad) {
+              detalleProblemas.push(
+                `Stock insuficiente de '${item.nombre}'. Solicitado: ${r.cantidad}, Disponible: ${stockDisponible}.`
+              );
+            }
+          }
+        }
+      }
     }
 
     detalles.push(`Tipo de recurso no válido: ${recurso.tipoRecurso}`);

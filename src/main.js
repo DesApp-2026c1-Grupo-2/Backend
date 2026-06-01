@@ -15,6 +15,9 @@ const loteRouter = require('./routes/loteRoutes');
 const recetaReactivoRouter = require('./routes/recetaReactivoRoutes');
 const actividadRouter = require('./routes/actividadRoutes');
 const produccionReactivoRouter = require('./routes/produccionReactivoRoutes');
+const reservaRoutes = require('./routes/reservaRoutes');
+
+
 
 // Middlewares
 app.use(cors());
@@ -32,6 +35,7 @@ app.use('/lotes', loteRouter);
 app.use('/receta-reactivos', recetaReactivoRouter);
 app.use('/actividades', actividadRouter);
 app.use('/produccion-reactivos', produccionReactivoRouter);
+app.use('/reservas', reservaRoutes);
 
 app.get('/__backend-test__', (req, res) => res.json({ok: true}));
 const PORT = process.env.PORT || 3000;

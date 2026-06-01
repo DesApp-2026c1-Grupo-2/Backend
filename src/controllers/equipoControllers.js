@@ -22,7 +22,7 @@ const getEquipos = async (req, res) => {
   try {
     const { estado, edificioId, laboratorioId } = req.query;
 
-    const filtros = {};
+    const filtros = { activo: { $ne: false } };
 
     if (estado) filtros.estado = estado;
     if (edificioId) filtros.edificioId = edificioId;
@@ -43,7 +43,7 @@ const getEquipoById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const equipo = await Equipo.findById(id)
+    const equipo = await Equipo.findOne({ _id: id, activo: { $ne: false } })
       .populate("edificioId")
       .populate("laboratorioId");
 
@@ -67,7 +67,7 @@ const updateEquipo = async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
-    const equipo = await Equipo.findById(id);
+    const equipo = await Equipo.findOne({ _id: id, activo: { $ne: false } });
     if (!equipo) {
       return res.status(404).json({ error: "Equipo no encontrado" });
     }
@@ -86,13 +86,17 @@ const deleteEquipo = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const equipo = await Equipo.findByIdAndDelete(id);
+    const equipo = await Equipo.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      { activo: false },
+      { new: true }
+    );
 
     if (!equipo) {
       return res.status(404).json({ error: "Equipo no encontrado" });
     }
 
-    return res.json({ message: "Equipo eliminado correctamente" });
+    return res.json({ message: "Equipo marcado como eliminado (borrado lógico)", equipo });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

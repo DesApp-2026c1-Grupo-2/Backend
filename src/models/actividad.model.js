@@ -8,6 +8,12 @@ const actividadSchema = new mongoose.Schema({
     enum: ['planificada', 'en_proceso', 'finalizada'], 
     default: 'planificada' 
   }
+  ,
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Actividad', actividadSchema);

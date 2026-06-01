@@ -94,7 +94,16 @@ const validarItem = async (req, res, next) => {
 
     // Validar requiereReceta
     if (data.requiereReceta !== undefined) {
-      const problemaReceta = validarReceta(data.tipo || "sustancia", data.requiereReceta);
+      let tipoParaValidar = data.tipo;
+
+      if (!tipoParaValidar && itemId) {
+        const itemExistente = await Item.findById(itemId).lean();
+        if (itemExistente) {
+          tipoParaValidar = itemExistente.tipo;
+        }
+      }
+
+      const problemaReceta = validarReceta(tipoParaValidar || "sustancia", data.requiereReceta);
       if (problemaReceta) detalleProblemas.push(problemaReceta);
     }
 

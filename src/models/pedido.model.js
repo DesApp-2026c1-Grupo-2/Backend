@@ -75,6 +75,10 @@ const pedidoSchema = new mongoose.Schema({
   checklist: {
     type: [tareaSchema],
     default: [],
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true,
   },
 }, { 
   timestamps: true,

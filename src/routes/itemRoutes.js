@@ -6,14 +6,16 @@ const {
   getItems,
   getItemById,
   updateItem,
-  deleteItem
+  deleteItemLogico
 } = require('../controllers/itemControllers');
+
+const validarItem = require('../middlewares/validateItems');
 
 // Rutas CRUD para Items
 router.get('/', getItems);
 router.get('/:id', getItemById);
-router.post('/', createItem);
-router.put('/:id', updateItem);
-router.delete('/:id', deleteItem);
+router.post('/', validarItem, createItem);
+router.put('/:id', validarItem, updateItem);
+router.delete('/:id', deleteItemLogico);
 
 module.exports = router;

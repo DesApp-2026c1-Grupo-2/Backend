@@ -42,6 +42,11 @@ const equipoSchema = new mongoose.Schema(
       ref: "Laboratorio",
       index: true,
     },
+    activo: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
   },
   {
     timestamps: true,

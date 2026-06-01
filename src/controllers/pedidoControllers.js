@@ -10,7 +10,7 @@ const getPedidos = async (req, res) => {
 
     const { id, rol } = req.usuario;
 
-    let filtro = {};
+    let filtro = { activo: { $ne: false } };
 
     // DOCENTE → solo sus pedidos
     if (rol === "DOCENTE") {
@@ -41,7 +41,7 @@ const getPedidoById = async (req, res) => {
     const { id: userId, rol } = req.usuario;
     const { id } = req.params;
 
-    const pedido = await Pedido.findById(id)
+    const pedido = await Pedido.findOne({ _id: id, activo: { $ne: false } })
       .populate("docente", "nombre apellido email")
       .populate("laboratorio", "nombre tipo")
       .populate({
@@ -76,7 +76,7 @@ const aprobarPedido = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const pedido = await Pedido.findById(id);
+    const pedido = await Pedido.findOne({ _id: id, activo: { $ne: false } });
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
@@ -233,7 +233,7 @@ const finalizarPedido = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const pedido = await Pedido.findById(id);
+    const pedido = await Pedido.findOne({ _id: id, activo: { $ne: false } });
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
@@ -331,8 +331,8 @@ const updatePedido = async (req, res) => {
       actualizacion.fechaHora = req.body.fechaHora;
     }
 
-    const pedido = await Pedido.findByIdAndUpdate(
-      id,
+    const pedido = await Pedido.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
       actualizacion,
       { new: true, runValidators: true }
     )
@@ -361,8 +361,8 @@ const updateEstado = async (req, res) => {
       return res.status(400).json({ error: "Estado no válido" });
     }
 
-    const pedido = await Pedido.findByIdAndUpdate(
-      id,
+    const pedido = await Pedido.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
       { estado },
       { new: true, runValidators: true }
     )
@@ -382,16 +382,20 @@ const updateEstado = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
-const borrarPedido = async (req, res) => {
+const borrarPedidoLogico = async (req, res) => {
   try {
     const { id } = req.params;
-    const pedido = await Pedido.findByIdAndDelete(id);
-    
+    const pedido = await Pedido.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      { activo: false },
+      { new: true }
+    );
+
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
-    
-    res.json({ message: "Pedido eliminado", pedido });
+
+    res.json({ message: "Pedido marcado como eliminado (borrado lógico)", pedido });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -404,5 +408,5 @@ module.exports = {
   updateEstado,
   aprobarPedido,
   finalizarPedido,
-  borrarPedido,
+  borrarPedidoLogico,
 };

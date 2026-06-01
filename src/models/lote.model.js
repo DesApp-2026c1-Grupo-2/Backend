@@ -19,7 +19,12 @@ const loteSchema = new mongoose.Schema({
   },
   fechaCreacion: { type: Date, default: Date.now },
   fechaVencimiento: { type: Date },
-  actividadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Actividad' } // Solo si está reservado/en uso
+  actividadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Actividad' }, // Solo si está reservado/en uso
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  }
 }, { timestamps: true });
 
 // Índice para optimizar el cálculo de stock
@@ -30,7 +35,8 @@ loteSchema.statics.calcularStockDisponible = async function(itemId) {
     { 
       $match: { 
         itemId: new mongoose.Types.ObjectId(itemId),
-        estado: 'disponible' 
+        estado: 'disponible',
+        activo: { $ne: false }
       } 
     },
     { 

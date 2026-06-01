@@ -1,26 +1,81 @@
 const Joi = require("joi");
 
-const equipoSchemaJoi = Joi.object({
-  nombre: Joi.string().min(2).max(100).required(),
-  tipo: Joi.string().required(),
+const createEquipoSchema = Joi.object({
+  nombre: Joi.string().trim().min(2).max(100).required(),
+  codigo: Joi.string().trim().required(),
+  tipo: Joi.string().trim().required(),
   esFijo: Joi.boolean().required(),
   estado: Joi.string()
-    .valid("disponible", "reservado", "mantenimiento", "fuera_de_servicio")
+    .valid("disponible", "mantenimiento", "fuera de servicio")
+    .default("disponible")
     .optional(),
-  edificioId: Joi.string().required(),
-  laboratorioId: Joi.string().allow(null, ""), 
+  edificioId: Joi.string().hex().length(24).required().messages({
+    "string.empty": "El ID del edificio es obligatorio",
+    "string.length": "El ID del edificio debe tener exactamente 24 caracteres",
+    "string.hex": "El ID del edificio debe ser un ObjectId válido",
+  }),
+  laboratorioId: Joi.string().hex().length(24).allow(null).default(null).messages({
+    "string.length": "El ID del laboratorio debe tener exactamente 24 caracteres",
+    "string.hex": "El ID del laboratorio debe ser un ObjectId válido",
+  }),
+  activo: Joi.boolean().default(true).optional(),
 }).custom((value, helpers) => {
-  
-
-  if (value.esFijo && !value.laboratorioId) {
-    return helpers.message("Un equipo fijo debe estar asignado a un laboratorio (laboratorioId).");
+  if (value.esFijo === true && !value.laboratorioId) {
+    return helpers.message("Un equipo fijo debe tener laboratorioId asignado");
   }
 
-  if (!value.esFijo && value.laboratorioId) {
-    return helpers.message("Un equipo móvil (no fijo) no debe tener un laboratorioId asignado directamente.");
+  if (value.esFijo === false && value.laboratorioId !== null) {
+    return helpers.message("Un equipo móvil no debe tener laboratorioId");
   }
 
   return value; 
 });
 
-module.exports = equipoSchemaJoi;
+const updateEquipoSchema = Joi.object({
+  nombre: Joi.string().trim().min(2).max(100).optional(),
+  codigo: Joi.string().trim().optional(),
+  tipo: Joi.string().trim().optional(),
+  esFijo: Joi.boolean().optional(),
+  estado: Joi.string()
+    .valid("disponible", "mantenimiento", "fuera de servicio")
+    .optional(),
+  edificioId: Joi.string().hex().length(24).optional().messages({
+    "string.length": "El ID del edificio debe tener exactamente 24 caracteres",
+    "string.hex": "El ID del edificio debe ser un ObjectId válido",
+  }),
+  laboratorioId: Joi.string().hex().length(24).allow(null).optional().messages({
+    "string.length": "El ID del laboratorio debe tener exactamente 24 caracteres",
+    "string.hex": "El ID del laboratorio debe ser un ObjectId válido",
+  }),
+  activo: Joi.boolean().optional(),
+}).custom((value, helpers) => {
+  // 1. Si ambos campos viajan en la petición, validamos que la combinación tenga sentido
+  if (value.esFijo !== undefined && value.laboratorioId !== undefined) {
+    if (value.esFijo === true && value.laboratorioId === null) {
+      return helpers.message("Un equipo fijo debe tener laboratorioId asignado");
+    }
+    if (value.esFijo === false && value.laboratorioId !== null) {
+      return helpers.message("Un equipo móvil no debe tener laboratorioId");
+    }
+  } 
+  // 2. Normalización automática si se convierte en móvil pero no se mandó laboratorioId explícito en null
+  else if (value.esFijo === false && value.laboratorioId === undefined) {
+    value.laboratorioId = null;
+  }
+  return value;
+});
+
+const equipoIdParamSchema = Joi.object({
+  id: Joi.string().hex().length(24).required().messages({
+    "string.length": "El ID del equipo debe tener exactamente 24 caracteres",
+    "string.hex": "El ID del equipo debe ser un ObjectId válido",
+  })
+});
+
+const equipoQuerySchema = Joi.object({
+  estado: Joi.string().valid("disponible", "mantenimiento", "fuera de servicio").optional(),
+  edificioId: Joi.string().hex().length(24).optional(),
+  laboratorioId: Joi.string().hex().length(24).optional()
+});
+
+module.exports = { createEquipoSchema, updateEquipoSchema, equipoIdParamSchema, equipoQuerySchema };

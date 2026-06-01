@@ -13,10 +13,12 @@ const equipoSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+      trim: true,
     },
     tipo: {
       type: String,
       required: true,
+      trim: true,
     },
     esFijo: {
       type: Boolean,
@@ -41,6 +43,7 @@ const equipoSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Laboratorio",
       index: true,
+      default: null,
     },
     activo: {
       type: Boolean,
@@ -61,16 +64,15 @@ const equipoSchema = new mongoose.Schema(
   },
 );
 
-equipoSchema.pre("save", function () {
-  if (this.isModified("esFijo") || this.isModified("laboratorioId")) {
-    if (this.esFijo && !this.laboratorioId) {
-      throw new Error("Un equipo fijo debe tener laboratorioId asignado");
-    }
-
-    if (!this.esFijo && this.laboratorioId) {
-      throw new Error("Un equipo móvil no debe tener laboratorioId");
-    }
+equipoSchema.pre("validate", function (next) {
+  // Validación de respaldo (Última línea de defensa)
+  if (this.esFijo === true && !this.laboratorioId) {
+    this.invalidate('laboratorioId', 'Un equipo fijo debe tener laboratorioId asignado');
   }
+  if (this.esFijo === false && this.laboratorioId !== null) {
+    this.invalidate('laboratorioId', 'Un equipo móvil no debe tener laboratorioId');
+  }
+  next();
 });
 
 module.exports = mongoose.model('Equipo', equipoSchema);

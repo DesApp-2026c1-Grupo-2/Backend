@@ -15,7 +15,12 @@ const recetaReactivoSchema = new mongoose.Schema({
     sustanciaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item', required: true },
     cantidad: { type: Number, required: true, min: 0 },
     unidad: { type: String, required: true }
-  }]
+  }],
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model('RecetaReactivo', recetaReactivoSchema);

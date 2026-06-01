@@ -28,6 +28,11 @@ const itemSchema = new mongoose.Schema({
       },
       message: 'Solo los ítems de tipo reactivo pueden requerir receta.'
     }
+  },
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
   }
 }, { timestamps: true });
 

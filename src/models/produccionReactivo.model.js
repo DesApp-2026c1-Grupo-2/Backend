@@ -12,7 +12,12 @@ const produccionReactivoSchema = new mongoose.Schema({
   }],
   cantidadGenerada: { type: Number, required: true, min: 0 },
   fecha: { type: Date, default: Date.now },
-  actividadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Actividad' }
+  actividadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Actividad' },
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model('ProduccionReactivo', produccionReactivoSchema);

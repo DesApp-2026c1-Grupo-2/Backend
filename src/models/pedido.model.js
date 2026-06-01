@@ -75,12 +75,14 @@ const pedidoSchema = new mongoose.Schema({
   checklist: {
     type: [tareaSchema],
     default: [],
+  },
   activo: {
     type: Boolean,
     default: true,
     index: true,
   },
-}, { 
+},
+{
   timestamps: true,
   strict: true,
   toJSON: {
@@ -90,7 +92,8 @@ const pedidoSchema = new mongoose.Schema({
       delete ret.__v;
     },
   },
-});
+}
+);
 
 // Índices para optimizar queries frecuentes
 pedidoSchema.index({ docente: 1, estado: 1 });

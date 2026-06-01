@@ -20,7 +20,7 @@ const createRecetaReactivo = async (req, res) => {
 const getRecetasReactivos = async (req, res) => {
   try {
     const { reactivoId } = req.query;
-    const filtros = {};
+    const filtros = { activo: { $ne: false } };
 
     if (reactivoId) filtros.reactivoId = reactivoId;
 
@@ -38,7 +38,7 @@ const getRecetasReactivos = async (req, res) => {
 const getRecetaReactivoById = async (req, res) => {
   try {
     const { id } = req.params;
-    const receta = await RecetaReactivo.findById(id)
+    const receta = await RecetaReactivo.findOne({ _id: id, activo: { $ne: false } })
       .populate('reactivoId', 'nombre codigo tipo unidad')
       .populate('composicion.sustanciaId', 'nombre codigo tipo unidad');
     
@@ -57,10 +57,11 @@ const updateRecetaReactivo = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const recetaActualizada = await RecetaReactivo.findByIdAndUpdate(id, req.body, { 
-      new: true, 
-      runValidators: true 
-    });
+    const recetaActualizada = await RecetaReactivo.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      req.body,
+      { new: true, runValidators: true }
+    );
 
     if (!recetaActualizada) {
       return res.status(404).json({ error: "Receta de reactivo no encontrada" });
@@ -79,13 +80,17 @@ const updateRecetaReactivo = async (req, res) => {
 const deleteRecetaReactivo = async (req, res) => {
   try {
     const { id } = req.params;
-    const recetaEliminada = await RecetaReactivo.findByIdAndDelete(id);
+    const recetaEliminada = await RecetaReactivo.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      { activo: false },
+      { new: true }
+    );
 
     if (!recetaEliminada) {
       return res.status(404).json({ error: "Receta de reactivo no encontrada" });
     }
 
-    return res.status(200).json({ message: "Receta de reactivo eliminada correctamente" });
+    return res.status(200).json({ message: "Receta de reactivo marcada como eliminada (borrado lógico)", receta: recetaEliminada });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

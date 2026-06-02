@@ -64,15 +64,14 @@ const equipoSchema = new mongoose.Schema(
   },
 );
 
-equipoSchema.pre("validate", function (next) {
+equipoSchema.pre("validate", function () {
   // Validación de respaldo (Última línea de defensa)
   if (this.esFijo === true && !this.laboratorioId) {
     this.invalidate('laboratorioId', 'Un equipo fijo debe tener laboratorioId asignado');
   }
-  if (this.esFijo === false && this.laboratorioId !== null) {
+  if (this.esFijo === false && this.laboratorioId != null) {
     this.invalidate('laboratorioId', 'Un equipo móvil no debe tener laboratorioId');
   }
-  next();
 });
 
 module.exports = mongoose.model('Equipo', equipoSchema);

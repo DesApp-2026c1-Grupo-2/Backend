@@ -53,18 +53,16 @@ const usuarioSchema = new mongoose.Schema({
   versionKey: false // Evita que MongoDB agregue el campo interno __v
 });
 
-usuarioSchema.pre('save', async function(next) {
+usuarioSchema.pre('save', async function() {
 
   // Evita re-hashear si no cambió
   if (!this.isModified('password')) {
-    return next();
+    return;
   }
 
   // Hash
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
-
-  next();
 });
 
 // Método para limpiar la respuesta: evita que la contraseña viaje al frontend

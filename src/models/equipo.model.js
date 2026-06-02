@@ -36,7 +36,7 @@ const equipoSchema = new mongoose.Schema(
     edificioId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Edificio",
-      required: true,
+      default: null,
       index: true,
     },
     laboratorioId: {

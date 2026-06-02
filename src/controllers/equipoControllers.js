@@ -26,8 +26,18 @@ const getEquipos = async (req, res) => {
     const filtros = { activo: { $ne: false } };
 
     if (estado) filtros.estado = estado;
-    if (edificioId) filtros.edificioId = new mongoose.Types.ObjectId(edificioId);
-    if (laboratorioId) filtros.laboratorioId = new mongoose.Types.ObjectId(laboratorioId);
+
+    if (edificioId === "null") {
+      filtros.edificioId = null;
+    } else if (edificioId) {
+      filtros.edificioId = new mongoose.Types.ObjectId(edificioId);
+    }
+
+    if (laboratorioId === "null") {
+      filtros.laboratorioId = null;
+    } else if (laboratorioId) {
+      filtros.laboratorioId = new mongoose.Types.ObjectId(laboratorioId);
+    }
 
     const equipos = await Equipo.find(filtros)
       .populate("edificioId")

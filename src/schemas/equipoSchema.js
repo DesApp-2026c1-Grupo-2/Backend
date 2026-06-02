@@ -9,8 +9,7 @@ const createEquipoSchema = Joi.object({
     .valid("disponible", "mantenimiento", "fuera de servicio")
     .default("disponible")
     .optional(),
-  edificioId: Joi.string().hex().length(24).required().messages({
-    "string.empty": "El ID del edificio es obligatorio",
+  edificioId: Joi.string().hex().length(24).allow(null).default(null).messages({
     "string.length": "El ID del edificio debe tener exactamente 24 caracteres",
     "string.hex": "El ID del edificio debe ser un ObjectId válido",
   }),
@@ -39,7 +38,7 @@ const updateEquipoSchema = Joi.object({
   estado: Joi.string()
     .valid("disponible", "mantenimiento", "fuera de servicio")
     .optional(),
-  edificioId: Joi.string().hex().length(24).optional().messages({
+  edificioId: Joi.string().hex().length(24).allow(null).optional().messages({
     "string.length": "El ID del edificio debe tener exactamente 24 caracteres",
     "string.hex": "El ID del edificio debe ser un ObjectId válido",
   }),
@@ -74,8 +73,8 @@ const equipoIdParamSchema = Joi.object({
 
 const equipoQuerySchema = Joi.object({
   estado: Joi.string().valid("disponible", "mantenimiento", "fuera de servicio").optional(),
-  edificioId: Joi.string().hex().length(24).optional(),
-  laboratorioId: Joi.string().hex().length(24).optional()
+  edificioId: Joi.string().hex().length(24).allow("null").optional(),
+  laboratorioId: Joi.string().hex().length(24).allow("null").optional()
 });
 
 module.exports = { createEquipoSchema, updateEquipoSchema, equipoIdParamSchema, equipoQuerySchema };

@@ -2,7 +2,7 @@ const Item = require("../models/item.model");
 const Lote = require("../models/lote.model");
 
 const validarTipo = (tipo) => {
-  const tiposValidos = ["sustancia", "reactivo", "material"];
+  const tiposValidos = ["sustancia", "reactivo", "material", "equipo"];
   if (!tiposValidos.includes(tipo)) {
     return `El tipo debe ser uno de: ${tiposValidos.join(", ")}`;
   }

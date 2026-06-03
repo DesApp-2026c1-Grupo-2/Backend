@@ -1,4 +1,4 @@
-const ProduccionReactivo = require("../models/produccionReactivo.model");
+import ProduccionReactivo from "../models/produccionReactivo.model.js";
 
 // C: Crear un nuevo registro de producción de reactivo
 const createProduccionReactivo = async (req, res) => {
@@ -92,7 +92,7 @@ const deleteProduccionReactivo = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   createProduccionReactivo,
   getProduccionesReactivos,
   getProduccionReactivoById,

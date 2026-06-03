@@ -1,12 +1,12 @@
 //necesito hacer un test de la ruta de pedidos, para eso necesito crear un pedido de prueba, para eso necesito un laboratorio de prueba, para eso necesito un edificio de prueba, para eso necesito una materia de prueba, para eso necesito un docente de prueba, para eso necesito un alumno de prueba, para eso necesito crear un usuario de prueba, para eso necesito crear un rol de prueba
-const mongoose = require("mongoose");
-const Pedido = require("../models/pedido.model");
-const Usuario = require("../models/usuario.model");
-const Laboratorio = require("../models/laboratorio.model");
-const Equipo = require("../models/equipo.model");
-const Item = require("../models/item.model");
+import mongoose from "mongoose";
+import Pedido from "../models/pedido.model.js";
+import Usuario from "../models/usuario.model.js";
+import Laboratorio from "../models/laboratorio.model.js";
+import Equipo from "../models/equipo.model.js";
+import Item from "../models/item.model.js";
 
-exports.seedPedidos = async () => {
+export const seedPedidos = async () => {
   try {
     await Pedido.deleteMany({});
 

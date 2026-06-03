@@ -16,4 +16,4 @@ const validateSchema = (schema, property = 'body') => {
   };
 };
 
-module.exports = validateSchema;
+export default validateSchema;

@@ -1,16 +1,16 @@
-const { Router } = require('express');
+import { Router } from 'express';
 const router = Router();
 
-const { validarJWT } = require('../middlewares/validateJWT.js');
+import { validarJWT } from '../middlewares/validateJWT.js';
 
-const {
+import {
   getUsuarios,
   getUsuarioById,
   createUsuario,
   updateUsuario,
   deleteUsuario,
   login
-} = require('../controllers/usuario.controller');
+} from '../controllers/usuario.controller.js';
 
 // Ruta para iniciar sesión (Login)
 router.post('/login', login);
@@ -26,4 +26,4 @@ router.put('/:id', validarJWT, updateUsuario);
 
 router.delete('/:id', validarJWT, deleteUsuario);
 
-module.exports = router;
+export default router;

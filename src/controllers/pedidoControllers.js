@@ -1,9 +1,9 @@
-const Pedido = require("../models/pedido.model");
-const Lote = require("../models/lote.model");
-const Equipo = require("../models/equipo.model");
-const Item = require("../models/item.model");
-const { verificarConflictos } = require("../services/pedidoConflictos");
-const Reserva = require("../models/reserva.model");
+import Pedido from "../models/pedido.model.js";
+import Lote from "../models/lote.model.js";
+import Equipo from "../models/equipo.model.js";
+import Item from "../models/item.model.js";
+import { verificarConflictos } from "../services/pedidoConflictos.js";
+import Reserva from "../models/reserva.model.js";
 
 const getPedidos = async (req, res) => {
   try {
@@ -400,7 +400,7 @@ const borrarPedidoLogico = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
-module.exports = {
+export {
   getPedidos,
   getPedidoById,
   createPedido,

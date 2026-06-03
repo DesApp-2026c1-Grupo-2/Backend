@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const equipoSchema = new mongoose.Schema(
   {
@@ -74,4 +74,4 @@ equipoSchema.pre("validate", function () {
   }
 });
 
-module.exports = mongoose.model('Equipo', equipoSchema);
+export default mongoose.models.Equipo || mongoose.model('Equipo', equipoSchema);

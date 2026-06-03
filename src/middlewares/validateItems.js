@@ -1,5 +1,5 @@
-const Item = require("../models/item.model");
-const Lote = require("../models/lote.model");
+import Item from "../models/item.model.js";
+import Lote from "../models/lote.model.js";
 
 const validarTipo = (tipo) => {
   const tiposValidos = ["sustancia", "reactivo", "material"];
@@ -120,4 +120,4 @@ const validarItem = async (req, res, next) => {
   }
 };
 
-module.exports = validarItem;
+export default validarItem;

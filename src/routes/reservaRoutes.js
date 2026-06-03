@@ -1,7 +1,7 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const reservaControllers = require("../controllers/reservaControllers");
-const { validarJWT } = require("../middlewares/validateJWT");
+import * as reservaControllers from "../controllers/reservaControllers.js";
+import { validarJWT } from "../middlewares/validateJWT.js";
 
 // GET: Obtener todas las reservas activas (Soporta query params ?startDate=...&endDate=...)
 router.get("/activas", validarJWT, reservaControllers.getReservasActivas);
@@ -12,4 +12,4 @@ router.get("/laboratorio/:laboratorioId", validarJWT, reservaControllers.getRese
 // PATCH: Cancelar una reserva y liberar sus recursos (equipos y stock)
 router.patch("/:id/cancelar", validarJWT, reservaControllers.cancelarReserva);
 
-module.exports = router;
+export default router;

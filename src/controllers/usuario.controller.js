@@ -1,6 +1,6 @@
-const Usuario = require('../models/usuario.model');
-const bcrypt = require('bcrypt');
-const jwt = require("jsonwebtoken");
+import Usuario from '../models/usuario.model.js';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
 /**
  * Obtener todos los usuarios
@@ -166,7 +166,7 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   getUsuarios,
   getUsuarioById,
   createUsuario,

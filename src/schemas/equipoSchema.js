@@ -1,4 +1,4 @@
-const Joi = require("joi");
+import Joi from "joi";
 
 const createEquipoSchema = Joi.object({
   nombre: Joi.string().trim().min(2).max(100).required(),
@@ -77,4 +77,4 @@ const equipoQuerySchema = Joi.object({
   laboratorioId: Joi.string().hex().length(24).allow("null").optional()
 });
 
-module.exports = { createEquipoSchema, updateEquipoSchema, equipoIdParamSchema, equipoQuerySchema };
+export { createEquipoSchema, updateEquipoSchema, equipoIdParamSchema, equipoQuerySchema };

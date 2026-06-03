@@ -1,9 +1,9 @@
-const Pedido = require("../models/pedido.model");
-const Laboratorio = require("../models/laboratorio.model");
-const Equipo = require("../models/equipo.model");
-const Item = require("../models/item.model");
-const Lote = require("../models/lote.model");
-const Reserva = require("../models/reserva.model");
+import Pedido from "../models/pedido.model.js";
+import Laboratorio from "../models/laboratorio.model.js";
+import Equipo from "../models/equipo.model.js";
+import Item from "../models/item.model.js";
+import Lote from "../models/lote.model.js";
+import Reserva from "../models/reserva.model.js";
 
 const construirFechaHora = (data) => {
   if (data.fecha && data.hora) {
@@ -172,4 +172,4 @@ const validarPedido = async (req, res, next) => {
   }
 };
 
-module.exports = validarPedido;
+export default validarPedido;

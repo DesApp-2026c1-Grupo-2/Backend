@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const edificioSchema = new mongoose.Schema(
   {
@@ -47,4 +47,4 @@ edificioSchema.virtual("cantidadLaboratorios", {
 
 const Edificio = mongoose.model("Edificio", edificioSchema);
 
-module.exports = Edificio;
+export default Edificio;

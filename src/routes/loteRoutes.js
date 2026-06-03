@@ -1,13 +1,13 @@
-const { Router } = require('express');
+import { Router } from 'express';
 const router = Router();
 
-const {
+import {
   createLote,
   getLotes,
   getLoteById,
   updateLote,
   deleteLote
-} = require('../controllers/loteControllers');
+} from '../controllers/loteControllers.js';
 
 // Rutas CRUD para Lotes
 router.get('/', getLotes);
@@ -16,4 +16,4 @@ router.post('/', createLote);
 router.put('/:id', updateLote);
 router.delete('/:id', deleteLote);
 
-module.exports = router;
+export default router;

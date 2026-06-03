@@ -46,7 +46,8 @@ const usuarioSchema = new mongoose.Schema({
   estado: {
     type: String,
     enum: ['ACTIVO', 'PENDIENTE', 'SUSPENDIDO'],
-    default: 'PENDIENTE' // Asume el modelo de "Registro con aprobación pendiente"
+    default: 'ACTIVO' // Asume el modelo de "Registro con aprobación activo automáticamente" //mas adelante deberiamos cambiarlo
+
   }
 }, {
   timestamps: true, // Genera automáticamente los campos createdAt y updatedAt
@@ -54,16 +55,25 @@ const usuarioSchema = new mongoose.Schema({
 });
 
 usuarioSchema.pre('save', async function() {
-
   // Evita re-hashear si no cambió
   if (!this.isModified('password')) {
     return;
+  }
+
+  // Validar que el password exista
+  if (!this.password) {
+    throw new Error('La contraseña es obligatoria');
   }
 
   // Hash
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
+
+// Método para comparar contraseñas
+usuarioSchema.methods.compararPassword = async function(passwordIngresada) {
+  return await bcrypt.compare(passwordIngresada, this.password);
+};
 
 // Método para limpiar la respuesta: evita que la contraseña viaje al frontend
 usuarioSchema.methods.toJSON = function() {

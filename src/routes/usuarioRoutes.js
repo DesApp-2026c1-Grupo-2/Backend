@@ -20,7 +20,8 @@ router.get('/', validarJWT, getUsuarios);
 
 router.get('/:id', validarJWT, getUsuarioById);
 
-router.post('/', validarJWT, createUsuario);
+// Ruta pública para registro de usuarios
+router.post('/', createUsuario);
 
 router.put('/:id', validarJWT, updateUsuario);
 

@@ -1,5 +1,4 @@
 const Usuario = require('../models/usuario.model');
-const bcrypt = require('bcrypt');
 const jwt = require("jsonwebtoken");
 
 /**
@@ -39,11 +38,6 @@ const createUsuario = async (req, res) => {
   try {
     const datosUsuario = { ...req.body };
     
-    if (datosUsuario.password) {
-      const salt = await bcrypt.genSalt(10);
-      datosUsuario.password = await bcrypt.hash(datosUsuario.password, salt);
-    }
-    
     const nuevoUsuario = new Usuario(datosUsuario);
     const usuarioGuardado = await nuevoUsuario.save();
     
@@ -61,11 +55,6 @@ const updateUsuario = async (req, res) => {
     const { id } = req.params;
     
     const datosActualizados = { ...req.body };
-    
-    if (datosActualizados.password) {
-      const salt = await bcrypt.genSalt(10);
-      datosActualizados.password = await bcrypt.hash(datosActualizados.password, salt);
-    }
 
     // { new: true } devuelve el documento actualizado
     // { runValidators: true } aplica las validaciones definidas en tu Schema (ej: enums y matches)
@@ -124,11 +113,8 @@ const login = async (req, res) => {
       });
     }
 
-    // Comparar password
-    const isMatch = await bcrypt.compare(
-      password,
-      usuario.password
-    );
+    // Comparar password usando método del modelo
+    const isMatch = await usuario.compararPassword(password);
 
     if (!isMatch) {
       return res.status(401).json({

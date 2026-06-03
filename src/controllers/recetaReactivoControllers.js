@@ -1,4 +1,4 @@
-const RecetaReactivo = require("../models/recetaReactivo.model");
+import RecetaReactivo from "../models/recetaReactivo.model.js";
 
 // C: Crear una nueva receta de reactivo
 const createRecetaReactivo = async (req, res) => {
@@ -96,7 +96,7 @@ const deleteRecetaReactivo = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   createRecetaReactivo,
   getRecetasReactivos,
   getRecetaReactivoById,

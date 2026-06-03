@@ -1,7 +1,7 @@
-const Reserva = require("../models/reserva.model");
-const Equipo = require("../models/equipo.model");
-const Lote = require("../models/lote.model");
-const Pedido = require("../models/pedido.model");
+import Reserva from "../models/reserva.model.js";
+import Equipo from "../models/equipo.model.js";
+import Lote from "../models/lote.model.js";
+import Pedido from "../models/pedido.model.js";
 
 // Controlador para listar reservas activas filtradas por un laboratorio específico
 const getReservasActivasPorLaboratorio = async (req, res) => {
@@ -92,7 +92,7 @@ const cancelarReserva = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
   cancelarReserva

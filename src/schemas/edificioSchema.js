@@ -1,4 +1,4 @@
-const Joi = require("joi");
+import Joi from "joi";
 
 const edificioSchemaJoi = Joi.object({
   nombre: Joi.string()
@@ -22,4 +22,4 @@ const edificioSchemaJoi = Joi.object({
     }),
 });
 
-module.exports = edificioSchemaJoi;
+export default edificioSchemaJoi;

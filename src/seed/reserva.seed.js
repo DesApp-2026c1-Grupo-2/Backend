@@ -1,12 +1,12 @@
-const mongoose = require("mongoose");
-const Reserva = require("../models/reserva.model");
-const Pedido = require("../models/pedido.model");
-const Lote = require("../models/lote.model");
+import mongoose from "mongoose";
+import Reserva from "../models/reserva.model.js";
+import Pedido from "../models/pedido.model.js";
+import Lote from "../models/lote.model.js";
 
 /**
  * UP: Inserta reservas de prueba basándose en los Pedidos existentes en la base de datos.
  */
-exports.seedReservas = async () => {
+export const seedReservas = async () => {
   try {
     // Limpiamos las reservas previas para evitar duplicados en el seed
     await Reserva.deleteMany({});
@@ -82,7 +82,7 @@ exports.seedReservas = async () => {
 /**
  * DOWN: Elimina todas las reservas (Rollback).
  */
-exports.rollbackReservas = async () => {
+export const rollbackReservas = async () => {
   try {
     await Reserva.deleteMany({});
     console.log("⏪ Rollback: Reservas eliminadas correctamente.");

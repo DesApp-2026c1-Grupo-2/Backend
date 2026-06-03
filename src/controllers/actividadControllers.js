@@ -1,4 +1,4 @@
-const Actividad = require("../models/actividad.model");
+import Actividad from "../models/actividad.model.js";
 
 // C: Crear una nueva actividad
 const createActividad = async (req, res) => {
@@ -85,7 +85,7 @@ const deleteActividad = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   createActividad,
   getActividades,
   getActividadById,

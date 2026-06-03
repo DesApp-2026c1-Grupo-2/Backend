@@ -1,4 +1,4 @@
-const Joi = require("joi");
+import Joi from "joi";
 
 const recursoSchemaJoi = Joi.object({
     recursoId: Joi.string().hex().length(24).required().messages({
@@ -65,3 +65,5 @@ const pedidoSchemaJoi = Joi.object({
     "object.xor": "No puede proporcionar 'fechaHora' y 'fecha' al mismo tiempo",
     "object.with": "Si proporciona 'fecha', también debe proporcionar 'hora'"
 });
+
+export default pedidoSchemaJoi;

@@ -1,5 +1,5 @@
-const Item = require("../models/item.model")
-const Lote = require('../models/lote.model') // Necesario para validar antes de borrar
+import Item from "../models/item.model.js";
+import Lote from "../models/lote.model.js"; // Necesario para validar antes de borrar
 
 
 // C: Crear un nuevo item
@@ -107,7 +107,7 @@ const deleteItemLogico = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   createItem,
   getItems,
   getItemById,

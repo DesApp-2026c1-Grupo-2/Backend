@@ -1,10 +1,10 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const recursoSchema = new mongoose.Schema({
   recursoId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
-    refPath: "recursos.tipoRecurso", // Permite popular dinámicamente entre Equipo e Item
+    refPath: "tipoRecurso", // Permite popular dinámicamente entre Equipo e Item
   },
   tipoRecurso: {
     type: String,
@@ -107,4 +107,4 @@ pedidoSchema.pre("save", function() {
   }
 });
 
-module.exports = mongoose.model("Pedido", pedidoSchema);
+export default mongoose.models.Pedido || mongoose.model("Pedido", pedidoSchema);

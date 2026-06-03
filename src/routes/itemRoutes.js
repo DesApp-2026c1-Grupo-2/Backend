@@ -1,15 +1,15 @@
-const { Router } = require('express');
+import { Router } from 'express';
 const router = Router();
 
-const {
+import {
   createItem,
   getItems,
   getItemById,
   updateItem,
   deleteItemLogico
-} = require('../controllers/itemControllers');
+} from '../controllers/itemControllers.js';
 
-const validarItem = require('../middlewares/validateItems');
+import validarItem from '../middlewares/validateItems.js';
 
 // Rutas CRUD para Items
 router.get('/', getItems);
@@ -18,4 +18,4 @@ router.post('/', validarItem, createItem);
 router.put('/:id', validarItem, updateItem);
 router.delete('/:id', deleteItemLogico);
 
-module.exports = router;
+export default router;

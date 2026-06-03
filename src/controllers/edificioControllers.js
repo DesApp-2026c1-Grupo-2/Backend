@@ -1,4 +1,4 @@
-const Edificio = require('../models/edificio.model');
+import Edificio from '../models/edificio.model.js';
 
 
 // C: Crear un nuevo edificio
@@ -75,7 +75,7 @@ const eliminarEdificioLogico = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-module.exports = {
+export {
   crearEdificio,
   obtenerEdificios,
   obtenerEdificioPorId,

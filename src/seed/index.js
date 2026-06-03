@@ -1,11 +1,11 @@
-const mongoose = require("mongoose");
-require("dotenv").config();
-const { seedUsuarios } = require("./usuario.seed.js");
-const { seedLaboratorios } = require("./laboratorio.seed.js");
-const { seedInventario } = require("./inventario.seed.js");
-const { seedPedidos } = require("./pedido.seed.js");
-const { seedEquipos } = require("./equipo.seed.js");
-const { seedReservas } = require("./reserva.seed.js");
+import mongoose from "mongoose";
+import "dotenv/config";
+import { seedUsuarios } from "./usuario.seed.js";
+import { seedLaboratorios } from "./laboratorio.seed.js";
+import { seedInventario } from "./inventario.seed.js";
+import { seedPedidos } from "./pedido.seed.js";
+import { seedEquipos } from "./equipo.seed.js";
+import { seedReservas } from "./reserva.seed.js";
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/gestionLaboratorios";
 

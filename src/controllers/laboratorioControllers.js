@@ -1,4 +1,4 @@
-const  Laboratorio  = require('../models/laboratorio.model');
+import Laboratorio from '../models/laboratorio.model.js';
 
 // C: Crear un nuevo laboratorio
 const crearLaboratorio = async (req, res) => {
@@ -127,7 +127,7 @@ const eliminarLaboratorioLogico = async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 };
-module.exports = {
+export {
     crearLaboratorio,
     obtenerLaboratorios,
     obtenerLaboratorioPorId,

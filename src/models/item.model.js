@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 /* Representa un item del inventario, que puede ser una sutancia, un reactivo o un material. 
 No representa el stock físico, para eso se usa el modelo de lote. 
@@ -41,4 +41,4 @@ const itemSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-module.exports = mongoose.model('Item', itemSchema);
+export default mongoose.models.Item || mongoose.model('Item', itemSchema);

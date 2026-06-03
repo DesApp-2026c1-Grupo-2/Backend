@@ -1,9 +1,9 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const pedidoControllers = require("../controllers/pedidoControllers");
+import * as pedidoControllers from "../controllers/pedidoControllers.js";
 
-const validarPedido = require("../middlewares/validatePedidos");
-const { validarJWT, validarRol } = require("../middlewares/validateJWT");
+import validarPedido from "../middlewares/validatePedidos.js";
+import { validarJWT, validarRol } from "../middlewares/validateJWT.js";
 
 // GET: Obtener todos los pedidos o uno por ID
 router.get("/", validarJWT, pedidoControllers.getPedidos);
@@ -24,4 +24,4 @@ router.patch("/:id/finalizar", validarJWT, validarRol("PERSONAL","ADMIN"), pedid
 // DELETE: Eliminar un pedido de forma lógica (SOLO ADMIN PUEDE ELIMINAR)
 router.delete("/:id", validarJWT, validarRol("ADMIN"), pedidoControllers.borrarPedidoLogico);
 
-module.exports = router;
+export default router;

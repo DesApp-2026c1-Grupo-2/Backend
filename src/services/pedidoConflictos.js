@@ -1,8 +1,8 @@
-const Pedido = require("../models/pedido.model");
-const Equipo = require("../models/equipo.model");
-const Lote = require("../models/lote.model");
-const Laboratorio = require("../models/laboratorio.model");
-const Reserva = require("../models/reserva.model");
+import Pedido from "../models/pedido.model.js";
+import Equipo from "../models/equipo.model.js";
+import Lote from "../models/lote.model.js";
+import Laboratorio from "../models/laboratorio.model.js";
+import Reserva from "../models/reserva.model.js";
 
 const verificarConflictos = async (pedido) => {
   const conflictos = [];
@@ -137,6 +137,6 @@ const verificarConflictos = async (pedido) => {
   return conflictos;
 };
 
-module.exports = {
+export {
   verificarConflictos,
 };

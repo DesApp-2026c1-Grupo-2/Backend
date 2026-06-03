@@ -1,4 +1,4 @@
-const Lote = require("../models/lote.model");
+import Lote from "../models/lote.model.js";
 
 // C: Crear un nuevo lote
 const createLote = async (req, res) => {
@@ -92,7 +92,7 @@ const deleteLote = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   createLote,
   getLotes,
   getLoteById,

@@ -1,6 +1,6 @@
-const mongoose = require("mongoose");
-const Usuario = require("../models/usuario.model");
-const bcrypt = require("bcrypt");
+import mongoose from "mongoose";
+import Usuario from "../models/usuario.model.js";
+import bcrypt from "bcrypt";
 
 const usuariosPrueba = [
   {
@@ -32,7 +32,7 @@ const usuariosPrueba = [
   }
 ];
 
-exports.seedUsuarios = async () => {
+export const seedUsuarios = async () => {
   try {
     await Usuario.deleteMany({});
     

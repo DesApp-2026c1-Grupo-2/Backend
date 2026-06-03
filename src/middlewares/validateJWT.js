@@ -1,4 +1,4 @@
-const jwt = require('jsonwebtoken');
+import jwt from 'jsonwebtoken';
 
 const validarJWT = (req, res, next) => {
 
@@ -50,4 +50,4 @@ const validarRol = (...rolesPermitidos) => {
 };
 
 
-module.exports = { validarJWT, validarRol };
+export { validarJWT, validarRol };

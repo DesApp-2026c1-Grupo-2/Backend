@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const Equipo = require("../models/equipo.model");
+import mongoose from "mongoose";
+import Equipo from "../models/equipo.model.js";
 
 const createEquipo = async (req, res) => {
   try {
@@ -124,7 +124,7 @@ const deleteEquipo = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
     deleteEquipo,
     updateEquipo,
     getEquipoById,

@@ -78,7 +78,7 @@ const validarRecursoItem = async (recurso) => {
   return null;
 };
 
-const validarRecursos = async (data) => {
+const validarRecursos = async (data, fechaHora) => {
   const detalles = [];
 
   if (!Array.isArray(data.recursos) || data.recursos.length === 0) {
@@ -87,59 +87,81 @@ const validarRecursos = async (data) => {
   }
 
   for (const recurso of data.recursos) {
-    if (!recurso.tipoRecurso || !recurso.recursoId || !recurso.cantidad) {
-      detalles.push("Cada recurso debe incluir tipoRecurso, recursoId y cantidad.");
+
+    if (
+      !recurso.tipoRecurso ||
+      !recurso.recursoId ||
+      !recurso.cantidad
+    ) {
+      detalles.push(
+        "Cada recurso debe incluir tipoRecurso, recursoId y cantidad."
+      );
       continue;
     }
 
     if (recurso.tipoRecurso === "Equipo") {
-      const problema = await validarRecursoEquipo(recurso);
-      if (problema) detalles.push(problema);
+
+      const equipo = await Equipo.findById(recurso.recursoId);
+
+      if (!equipo) {
+        detalles.push(
+          "Uno de los equipos solicitados no existe."
+        );
+        continue;
+      }
+
+      const reservaOcupando = await Reserva.findOne({
+        fechaHora,
+        estado: { $in: ["Pendiente", "En Curso"] },
+        "equiposReservados.equipoId": recurso.recursoId,
+      });
+
+      if (reservaOcupando) {
+        detalles.push(
+          `El equipo '${equipo.nombre}' ya está reservado en ese horario.`
+        );
+      }
+
+      if (
+        equipo.estado !== "disponible" &&
+        equipo.estado !== "reservado"
+      ) {
+        detalles.push(
+          `El equipo '${equipo.nombre}' no está operativo.`
+        );
+      }
+
       continue;
     }
 
-    // 4. Validar existencia y disponibilidad real de los recursos
-    if (data.recursos && Array.isArray(data.recursos)) {
-      for (const r of data.recursos) {
-        if (r.tipoRecurso === "Equipo") {
-          const equipo = await Equipo.findById(r.recursoId);
-          if (!equipo) {
-            detalleProblemas.push("Uno de los equipos solicitados no existe.");
-          } else {
-            // Validación de disponibilidad temporal delegada a Reserva
-            const reservaOcupando = await Reserva.findOne({
-              fechaHora: fechaHora,
-              estado: { $in: ['Pendiente', 'En Curso'] },
-              "equiposReservados.equipoId": r.recursoId
-            });
+    if (recurso.tipoRecurso === "Item") {
 
-            if (reservaOcupando) {
-              detalleProblemas.push(`El equipo '${equipo.nombre}' ya se encuentra reservado en ese horario.`);
-            } else if (equipo.estado !== "disponible" && equipo.estado !== "reservado") {
-              // Validamos estados de inoperatividad reales (ej. Mantenimiento). Ignoramos 'reservado' por si hay legacy data.
-              detalleProblemas.push(`El equipo '${equipo.nombre}' no está operativo (Estado actual: ${equipo.estado}).`);
-            }
-          }
-        }
+      const item = await Item.findById(recurso.recursoId);
 
-        if (r.tipoRecurso === "Item") {
-          const item = await Item.findById(r.recursoId);
-          if (!item) {
-            detalleProblemas.push("Uno de los ítems solicitados no existe.");
-          } else {
-            // Delegamos el cálculo del stock real al modelo de Lote
-            const stockDisponible = await Lote.calcularStockDisponible(r.recursoId);
-            if (stockDisponible < r.cantidad) {
-              detalleProblemas.push(
-                `Stock insuficiente de '${item.nombre}'. Solicitado: ${r.cantidad}, Disponible: ${stockDisponible}.`
-              );
-            }
-          }
-        }
+      if (!item) {
+        detalles.push(
+          "Uno de los ítems solicitados no existe."
+        );
+        continue;
       }
+
+      const stockDisponible =
+        await Lote.calcularStockDisponible(
+          recurso.recursoId
+        );
+
+      if (stockDisponible < recurso.cantidad) {
+        detalles.push(
+          `Stock insuficiente de '${item.nombre}'. Solicitado: ${recurso.cantidad}, Disponible: ${stockDisponible}.`
+        );
+      }
+
+      continue;
     }
 
-    detalles.push(`Tipo de recurso no válido: ${recurso.tipoRecurso}`);
+    detalles.push(
+      `Tipo de recurso no válido: ${recurso.tipoRecurso}`
+    );
   }
 
   return detalles;
@@ -160,7 +182,7 @@ const validarPedido = async (req, res, next) => {
     const problemaLaboratorio = await validarLaboratorioCapacidad(data);
     if (problemaLaboratorio) detalleProblemas.push(problemaLaboratorio);
 
-    const recursosProblemas = await validarRecursos(data);
+    const recursosProblemas = await validarRecursos(data, fechaHora);
     detalleProblemas.push(...recursosProblemas);
 
     req.detalleProblemas = detalleProblemas;

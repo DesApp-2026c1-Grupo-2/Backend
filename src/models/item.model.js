@@ -11,7 +11,7 @@ mientras que el Lote es una Instancia concreta de ese producto, manteniendo el e
 const itemSchema = new mongoose.Schema({
   tipo: { 
     type: String, 
-    enum: ['sustancia', 'reactivo', 'material'], 
+    enum: ['sustancia', 'reactivo', 'material', 'equipo'], 
     required: true 
   },
   nombre: { type: String, required: true },
@@ -23,8 +23,13 @@ const itemSchema = new mongoose.Schema({
     default: false,
     validate: {
       validator: function(v) {
-        // Solo los reactivos deberían requerir receta
-        return this.tipo === 'reactivo' ? true : v === false;
+        // Solo los reactivos pueden requerir receta
+        // Para otros tipos (material, sustancia, equipo), debe ser false o puede ser omitido (default false)
+        if (this.tipo === 'reactivo') {
+          return true; // Los reactivos pueden ser true o false
+        }
+        // Para otros tipos, solo permitir false (o default)
+        return v === false || v === undefined;
       },
       message: 'Solo los ítems de tipo reactivo pueden requerir receta.'
     }

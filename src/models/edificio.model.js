@@ -36,12 +36,13 @@ const edificioSchema = new mongoose.Schema(
 );
 
 /**
- * Virtual para contar laboratorios
+ * Virtual para contar laboratorios (excluyendo los eliminados)
  */
 edificioSchema.virtual("cantidadLaboratorios", {
   ref: "Laboratorio",
   localField: "_id",
   foreignField: "edificioId",
+  match: { estado: { $ne: "eliminado" } },
   count: true,
 });
 

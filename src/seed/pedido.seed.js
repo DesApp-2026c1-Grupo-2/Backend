@@ -1,4 +1,3 @@
-//necesito hacer un test de la ruta de pedidos, para eso necesito crear un pedido de prueba, para eso necesito un laboratorio de prueba, para eso necesito un edificio de prueba, para eso necesito una materia de prueba, para eso necesito un docente de prueba, para eso necesito un alumno de prueba, para eso necesito crear un usuario de prueba, para eso necesito crear un rol de prueba
 import mongoose from "mongoose";
 import Pedido from "../models/pedido.model.js";
 import Usuario from "../models/usuario.model.js";
@@ -48,6 +47,10 @@ export const seedPedidos = async () => {
           { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 2 },
           { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 5 },
         ],
+        checklist: [
+          { descripcion: "Acondicionar equipo reservado y verificar su funcionamiento.", tipo: "Logistica", estado: "Completada" },
+          { descripcion: "Colocar todos los materiales, equipos y reactivos en los carritos destinados al aula.", tipo: "General", estado: "Pendiente" }
+        ]
       },
       {
         materia: "Física II",
@@ -60,7 +63,25 @@ export const seedPedidos = async () => {
           { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 3 },
           { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 8 },
         ],
-      }
+        detalleProblemas: [
+          "El equipo no se encuentra disponible en esa fecha",
+          "Stock insuficiente del material solicitado"
+        ]
+      },
+      {
+        materia: "Química Analítica",
+        docente: docente._id,
+        fechaHora: new Date("2026-06-05T08:00:00"),
+        laboratorio: laboratorio._id,
+        alumnos: 30,
+        estado: "En Revisión",
+        recursos: [
+          { recursoId: itemReactivo._id, tipoRecurso: "Item", cantidad: 15 },
+        ],
+        detalleProblemas: [
+          "Stock insuficiente del reactivo. Se requiere aprobación de compra."
+        ]
+      },
     ];
 
     await Pedido.insertMany(pedidosPrueba);

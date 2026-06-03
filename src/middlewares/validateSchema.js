@@ -11,7 +11,13 @@ const validateSchema = (schema, property = 'body') => {
     }
 
     // Reemplazamos la propiedad del request con los valores validados (aplica defaults, conversiones de tipos y recortes)
-    req[property] = value;
+    // Usamos Object.defineProperty para evitar el error "which has only a getter" en propiedades de solo lectura
+    Object.defineProperty(req, property, {
+      value: value,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
     next();
   };
 };

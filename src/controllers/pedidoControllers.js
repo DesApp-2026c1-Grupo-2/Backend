@@ -46,7 +46,11 @@ const getPedidoById = async (req, res) => {
       .populate({
         path: "recursos.recursoId",
         select: "nombre tipo codigo esFijo estado",
-      });
+      })
+      .populate({
+        path: "comentarios.usuario",
+        select: "nombre apellido rol"
+      });      
 
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });

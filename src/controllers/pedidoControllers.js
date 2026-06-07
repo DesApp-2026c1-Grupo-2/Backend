@@ -325,6 +325,43 @@ const borrarPedidoLogico = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+
+const agregarComentario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { mensaje } = req.body;
+
+    const pedido = await Pedido.findById(id);
+
+    if (!pedido) {
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
+    }
+
+    pedido.comentarios.push({
+      usuario: req.usuario.id,
+      mensaje
+    });
+
+    await pedido.save();
+
+    await pedido.populate(
+      "comentarios.usuario",
+      "nombre apellido rol"
+    );
+
+    res.status(201).json(
+      pedido.comentarios[pedido.comentarios.length - 1]
+    );
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+};
 module.exports = {
   getPedidos,
   getPedidoById,
@@ -334,4 +371,5 @@ module.exports = {
   aprobarPedido,
   finalizarPedido,
   borrarPedidoLogico,
+  agregarComentario,
 };

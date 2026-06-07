@@ -24,4 +24,7 @@ router.patch("/:id/finalizar", validarJWT, validarRol("PERSONAL","ADMIN"), pedid
 // DELETE: Eliminar un pedido de forma lógica (SOLO ADMIN PUEDE ELIMINAR)
 router.delete("/:id", validarJWT, validarRol("ADMIN"), pedidoControllers.borrarPedidoLogico);
 
+// POST: Agregar un comentario a un pedido
+router.post("/pedido/:id/comentarios", validarJWT, pedidoControllers.agregarComentario);
+
 module.exports = router;

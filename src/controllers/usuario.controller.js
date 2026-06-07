@@ -39,6 +39,10 @@ const createUsuario = async (req, res) => {
   try {
     const datosUsuario = { ...req.body };
     
+    if (datosUsuario.legajo !== undefined && String(datosUsuario.legajo).trim() === '') {
+      delete datosUsuario.legajo;
+    }
+
     const nuevoUsuario = new Usuario(datosUsuario);
     const usuarioGuardado = await nuevoUsuario.save();
     
@@ -56,6 +60,11 @@ const updateUsuario = async (req, res) => {
     const { id } = req.params;
     
     const datosActualizados = { ...req.body };
+
+    if (datosActualizados.legajo !== undefined && String(datosActualizados.legajo).trim() === '') {
+      datosActualizados.$unset = { legajo: 1 };
+      delete datosActualizados.legajo;
+    }
 
     // { new: true } devuelve el documento actualizado
     // { runValidators: true } aplica las validaciones definidas en tu Schema (ej: enums y matches)

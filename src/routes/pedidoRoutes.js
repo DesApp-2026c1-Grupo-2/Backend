@@ -25,6 +25,6 @@ router.patch("/:id/finalizar", validarJWT, validarRol("PERSONAL","ADMIN"), pedid
 router.delete("/:id", validarJWT, validarRol("ADMIN"), pedidoControllers.borrarPedidoLogico);
 
 // POST: Agregar un comentario a un pedido
-router.post("/pedido/:id/comentarios", validarJWT, pedidoControllers.agregarComentario);
+router.post("/:id/comentarios", validarJWT, pedidoControllers.agregarComentario);
 
 module.exports = router;

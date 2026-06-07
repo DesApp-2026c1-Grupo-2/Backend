@@ -351,14 +351,19 @@ const agregarComentario = async (req, res) => {
 
     await pedido.save();
 
-    await pedido.populate(
-      "comentarios.usuario",
-      "nombre apellido rol"
-    );
+    // Volvemos a buscar el pedido ya guardado
+    const pedidoActualizado = await Pedido.findById(id)
+      .populate({
+        path: "comentarios.usuario",
+        select: "nombre apellido rol"
+      });
 
-    res.status(201).json(
-      pedido.comentarios[pedido.comentarios.length - 1]
-    );
+    const comentarioNuevo =
+      pedidoActualizado.comentarios[
+        pedidoActualizado.comentarios.length - 1
+      ];
+
+    res.status(201).json(comentarioNuevo);
 
   } catch (error) {
     res.status(500).json({
@@ -366,6 +371,7 @@ const agregarComentario = async (req, res) => {
     });
   }
 };
+
 module.exports = {
   getPedidos,
   getPedidoById,

@@ -2,22 +2,35 @@
   "name": "desaappbackend",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/main.js",
+  "type": "module",
   "scripts": {
-    "dev":"nodemon src/main.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon src/main.js",
+    "seed": "node src/seed/index.js",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "coverage": "vitest run --coverage"
   },
   "repository": {
     "type": "git",
-    "url": "\u0016https://github.com/DesApp-2026c1-Grupo-2/Backend.git"
+    "url": "https://github.com/DesApp-2026c1-Grupo-2/Backend.git"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "joi": "^18.1.2",
+    "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.5.0",
     "nodemon": "^3.1.14",
+    "vitest": "^4.1.8",
     "yamljs": "^0.3.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.8"
   }
 }

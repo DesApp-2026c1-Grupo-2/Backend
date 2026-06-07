@@ -1,6 +1,6 @@
 Backend – Gestión de Laboratorios
 
-API backend para la gestión de turnos, recursos y operaciones de laboratorios de biología y química en un entorno universitario.
+API backend para la gestión de turnos, recursos y operaciones de laboratorios en un entorno universitario.
 
 ---
 
@@ -17,7 +17,7 @@ API backend para la gestión de turnos, recursos y operaciones de laboratorios d
 - **Contenerización:** Docker  
 
 ---
-## 📁 Estructura del Proyecto
+## Estructura del Proyecto
 backend/
 │── src/
 │ ├── controllers/ 

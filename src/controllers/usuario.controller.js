@@ -1,0 +1,172 @@
+import Usuario from '../models/usuario.model.js';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+
+/**
+ * Obtener todos los usuarios
+ */
+const getUsuarios = async (req, res) => {
+  try {
+    const usuarios = await Usuario.find({ activo: { $ne: false } });
+    res.status(200).json(usuarios);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener los usuarios', error: error.message });
+  }
+};
+
+/**
+ * Obtener un usuario por ID
+ */
+const getUsuarioById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuario = await Usuario.findOne({ _id: id, activo: { $ne: false } });
+    
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+    
+    res.status(200).json(usuario);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener el usuario', error: error.message });
+  }
+};
+
+/**
+ * Crear un nuevo usuario
+ */
+const createUsuario = async (req, res) => {
+  try {
+    const datosUsuario = { ...req.body };
+    
+    if (datosUsuario.legajo !== undefined && String(datosUsuario.legajo).trim() === '') {
+      delete datosUsuario.legajo;
+    }
+
+    const nuevoUsuario = new Usuario(datosUsuario);
+    const usuarioGuardado = await nuevoUsuario.save();
+    
+    res.status(201).json(usuarioGuardado);
+  } catch (error) {
+    res.status(400).json({ message: 'Error al crear el usuario', error: error.message });
+  }
+};
+
+/**
+ * Actualizar un usuario existente
+ */
+const updateUsuario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const datosActualizados = { ...req.body };
+
+    if (datosActualizados.legajo !== undefined && String(datosActualizados.legajo).trim() === '') {
+      datosActualizados.$unset = { legajo: 1 };
+      delete datosActualizados.legajo;
+    }
+
+    // { new: true } devuelve el documento actualizado
+    // { runValidators: true } aplica las validaciones definidas en tu Schema (ej: enums y matches)
+    const usuarioActualizado = await Usuario.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      datosActualizados,
+      { new: true, runValidators: true }
+    );
+    
+    if (!usuarioActualizado) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+    
+    res.status(200).json(usuarioActualizado);
+  } catch (error) {
+    res.status(400).json({ message: 'Error al actualizar el usuario', error: error.message });
+  }
+};
+
+/**
+ * Eliminar un usuario
+ */
+const deleteUsuario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuarioEliminado = await Usuario.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      { activo: false },
+      { new: true }
+    );
+    
+    if (!usuarioEliminado) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+    
+    res.status(200).json({ message: 'Usuario marcado como eliminado (borrado lógico)', usuario: usuarioEliminado });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al eliminar el usuario', error: error.message });
+  }
+};
+
+/**
+ * Autenticar un usuario (Login)
+ */
+const login = async (req, res) => {
+  try {
+
+    const { email, password } = req.body;
+
+    // Buscar usuario activo
+    const usuario = await Usuario.findOne({ email, activo: { $ne: false } });
+
+    if (!usuario) {
+      return res.status(401).json({
+        message: 'Credenciales inválidas'
+      });
+    }
+
+    // Comparar password usando método del modelo
+    const isMatch = await usuario.compararPassword(password);
+
+    if (!isMatch) {
+      return res.status(401).json({
+        message: 'Credenciales inválidas'
+      });
+    }
+
+    // GENERAR JWT
+    const token = jwt.sign(
+      {
+        id: usuario._id,
+        email: usuario.email,
+        rol: usuario.rol
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "7d"
+      }
+    );
+
+    // RESPUESTA
+    res.status(200).json({
+      message: 'Login exitoso',
+      usuario,
+      token
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      message: 'Error al intentar iniciar sesión',
+      error: error.message
+    });
+
+  }
+};
+
+export {
+  getUsuarios,
+  getUsuarioById,
+  createUsuario,
+  updateUsuario,
+  deleteUsuario,
+  login
+};

@@ -1,7 +1,56 @@
-const express = require('express');
-const mongoose = require('mongoose');
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import 'dotenv/config';
+
 const app = express();
-require('dotenv').config();
-const YAML = require('yamljs');
+
+// --- Importación de Rutas ---
+import edificioRouter from './routes/edificioRoutes.js';
+import laboratorioRouter from './routes/laboratorioRoutes.js';
+import equipoRouter from './routes/equipoRoutes.js';
+import pedidoRouter from './routes/pedidoRoutes.js';
+import usuarioRouter from './routes/usuarioRoutes.js';
+import itemRouter from './routes/itemRoutes.js';
+import loteRouter from './routes/loteRoutes.js';
+import recetaReactivoRouter from './routes/recetaReactivoRoutes.js';
+import actividadRouter from './routes/actividadRoutes.js';
+import produccionReactivoRouter from './routes/produccionReactivoRoutes.js';
+import reservaRoutes from './routes/reservaRoutes.js';
 
 
+
+// Middlewares
+app.use(cors());
+app.use(express.json());
+
+
+// Rutas
+app.use('/edificio', edificioRouter);
+app.use('/laboratorio', laboratorioRouter);
+app.use('/equipo', equipoRouter);
+app.use('/pedido', pedidoRouter);
+app.use('/usuarios', usuarioRouter);
+app.use('/items', itemRouter);
+app.use('/lotes', loteRouter);
+app.use('/receta-reactivos', recetaReactivoRouter);
+app.use('/actividades', actividadRouter);
+app.use('/produccion-reactivos', produccionReactivoRouter);
+app.use('/reservas', reservaRoutes);
+
+app.get('/__backend-test__', (req, res) => res.json({ok: true}));
+const PORT = process.env.PORT || 3000;
+const MONGO_URI = process.env.MONGO_URI
+
+
+mongoose.connect(MONGO_URI)
+  .then(() => {
+    console.log("Conectado a MongoDB correctamente");
+  })
+  .catch((err) => {
+    console.error(" Error conectando a MongoDB:", err);
+  });
+
+app.listen(PORT, () => {
+    console.log('Servidor corriendo en el puerto ' + PORT)
+})

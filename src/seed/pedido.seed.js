@@ -27,6 +27,7 @@ export const seedPedidos = async () => {
         materia: "Química General",
         docente: docente._id,
         fechaHora: new Date("2026-06-01T10:00:00"),
+        duracionClase: 120,
         laboratorio: laboratorio._id,
         alumnos: 20,
         estado: "Pendiente",
@@ -40,6 +41,7 @@ export const seedPedidos = async () => {
         materia: "Biología Celular",
         docente: docente._id,
         fechaHora: new Date("2026-06-02T12:00:00"),
+        duracionClase: 90,
         laboratorio: laboratorio._id,
         alumnos: 15,
         estado: "Aceptado",
@@ -56,6 +58,7 @@ export const seedPedidos = async () => {
         materia: "Física II",
         docente: docente._id,
         fechaHora: new Date("2026-06-03T14:00:00"),
+        duracionClase: 120,
         laboratorio: laboratorio._id,
         alumnos: 22,
         estado: "Rechazado",
@@ -72,21 +75,31 @@ export const seedPedidos = async () => {
         materia: "Química Analítica",
         docente: docente._id,
         fechaHora: new Date("2026-06-05T08:00:00"),
+        duracionClase: 180,
         laboratorio: laboratorio._id,
-        alumnos: 30,
-        estado: "En Revisión",
+        alumnos: 18,
+        estado: "Finalizado",
         recursos: [
-          { recursoId: itemReactivo._id, tipoRecurso: "Item", cantidad: 15 },
-        ],
-        detalleProblemas: [
-          "Stock insuficiente del reactivo. Se requiere aprobación de compra."
+          { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: itemReactivo._id, tipoRecurso: "Item", cantidad: 5 }
         ]
-      },
+      }
     ];
 
-    await Pedido.insertMany(pedidosPrueba);
-    console.log("✅ Pedidos de prueba sembrados correctamente.");
+    if (pedidosPrueba.length > 0) {
+      await Pedido.insertMany(pedidosPrueba);
+      console.log(`✅ Se insertaron exitosamente ${pedidosPrueba.length} pedidos de prueba.`);
+    }
   } catch (error) {
     console.error("❌ Error al sembrar los pedidos:", error);
+  }
+};
+
+export const rollbackPedidos = async () => {
+  try {
+    await Pedido.deleteMany({});
+    console.log("⏪ Rollback: Pedidos eliminados correctamente.");
+  } catch (error) {
+    console.error("❌ Error al revertir los pedidos:", error);
   }
 };

@@ -1,29 +1,36 @@
-const { Router } = require('express');
+import { Router } from 'express';
 const router = Router();
 
-const { validarJWT } = require('../middlewares/validateJWT.js');
+import { validarJWT } from '../middlewares/validateJWT.js';
+import validateSchema from '../middlewares/validateSchema.js';
+import {
+  createUsuarioSchema,
+  updateUsuarioSchema,
+  loginUsuarioSchema
+} from '../schemas/usuarioSchema.js';
 
-const {
+import {
   getUsuarios,
   getUsuarioById,
   createUsuario,
   updateUsuario,
   deleteUsuario,
   login
-} = require('../controllers/usuario.controller');
+} from '../controllers/usuario.controller.js';
 
 // Ruta para iniciar sesión (Login)
-router.post('/login', login);
+router.post('/login', validateSchema(loginUsuarioSchema), login);
 
 // Rutas CRUD para Usuarios
 router.get('/', validarJWT, getUsuarios);
 
 router.get('/:id', validarJWT, getUsuarioById);
 
-router.post('/', validarJWT, createUsuario);
+// Ruta pública para registro de usuarios
+router.post('/', validateSchema(createUsuarioSchema), createUsuario);
 
-router.put('/:id', validarJWT, updateUsuario);
+router.put('/:id', validarJWT, validateSchema(updateUsuarioSchema), updateUsuario);
 
 router.delete('/:id', validarJWT, deleteUsuario);
 
-module.exports = router;
+export default router;

@@ -1,13 +1,13 @@
-const { Router } = require('express');
+import { Router } from 'express';
 const router = Router();
 
-const {
+import {
   createProduccionReactivo,
   getProduccionesReactivos,
   getProduccionReactivoById,
   updateProduccionReactivo,
   deleteProduccionReactivo
-} = require('../controllers/produccionReactivoControllers');
+} from '../controllers/produccionReactivoControllers.js';
 
 // Rutas CRUD para Producción de Reactivos
 router.get('/', getProduccionesReactivos);
@@ -16,4 +16,4 @@ router.post('/', createProduccionReactivo);
 router.put('/:id', updateProduccionReactivo);
 router.delete('/:id', deleteProduccionReactivo);
 
-module.exports = router;
+export default router;

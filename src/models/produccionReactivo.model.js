@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 /* Representa la producción de un reactivo a partir de su receta.
 Cada vez que se produce un reactivo, se registra una entrada en esta colección que indica qué reactivo se produjo, qué sustancias se usaron (con sus cantidades) y cuánto se generó. 
 Esto permite llevar un historial detallado de la producción de reactivos, rastrear el consumo de sustancias y calcular el stock real de cada reactivo teniendo en cuenta su producción y consumo.
@@ -12,7 +12,12 @@ const produccionReactivoSchema = new mongoose.Schema({
   }],
   cantidadGenerada: { type: Number, required: true, min: 0 },
   fecha: { type: Date, default: Date.now },
-  actividadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Actividad' }
+  actividadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Actividad' },
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  }
 }, { timestamps: true });
 
-module.exports = mongoose.model('ProduccionReactivo', produccionReactivoSchema);
+export default mongoose.models.ProduccionReactivo || mongoose.model('ProduccionReactivo', produccionReactivoSchema);

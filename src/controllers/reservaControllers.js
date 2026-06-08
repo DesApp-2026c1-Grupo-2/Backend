@@ -1,7 +1,7 @@
-const Reserva = require("../models/reserva.model");
-const Equipo = require("../models/equipo.model");
-const Lote = require("../models/lote.model");
-const Pedido = require("../models/pedido.model");
+import Reserva from "../models/reserva.model.js";
+import Equipo from "../models/equipo.model.js";
+import Lote from "../models/lote.model.js";
+import Pedido from "../models/pedido.model.js";
 
 // Controlador para listar reservas activas filtradas por un laboratorio específico
 const getReservasActivasPorLaboratorio = async (req, res) => {
@@ -19,6 +19,7 @@ const getReservasActivasPorLaboratorio = async (req, res) => {
 
     res.json(reservas);
   } catch (error) {
+    console.error("Error en getReservasActivasPorLaboratorio:", error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -32,10 +33,15 @@ const getReservasActivas = async (req, res) => {
     let filtro = { estado: { $in: ['Pendiente', 'En Curso'] } };
 
     if (startDate && endDate) {
-      filtro.fechaHora = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+      const parsedStart = new Date(startDate);
+      const parsedEnd = new Date(endDate);
+
+      if (!isNaN(parsedStart) && !isNaN(parsedEnd)) {
+        filtro.fechaHora = {
+          $gte: parsedStart,
+          $lte: parsedEnd
+        };
+      }
     }
 
     const reservas = await Reserva.find(filtro)
@@ -46,6 +52,7 @@ const getReservasActivas = async (req, res) => {
 
     res.json(reservas);
   } catch (error) {
+    console.error("Error en getReservasActivas:", error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -80,11 +87,12 @@ const cancelarReserva = async (req, res) => {
 
     res.json({ message: "Reserva cancelada exitosamente. Se liberaron los equipos y se restauró el stock.", reserva });
   } catch (error) {
+    console.error("Error en cancelarReserva:", error);
     res.status(500).json({ error: error.message });
   }
 };
 
-module.exports = {
+export {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
   cancelarReserva

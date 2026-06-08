@@ -1,13 +1,13 @@
-const { Router } = require('express');
+import { Router } from 'express';
 const router = Router();
 
-const {
+import {
   createRecetaReactivo,
   getRecetasReactivos,
   getRecetaReactivoById,
   updateRecetaReactivo,
   deleteRecetaReactivo
-} = require('../controllers/recetaReactivoControllers');
+} from '../controllers/recetaReactivoControllers.js';
 
 // Rutas CRUD para Recetas de Reactivos
 router.get('/', getRecetasReactivos);
@@ -16,4 +16,4 @@ router.post('/', createRecetaReactivo);
 router.put('/:id', updateRecetaReactivo);
 router.delete('/:id', deleteRecetaReactivo);
 
-module.exports = router;
+export default router;

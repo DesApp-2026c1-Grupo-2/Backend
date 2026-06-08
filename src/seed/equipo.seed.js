@@ -1,9 +1,9 @@
-const mongoose = require("mongoose");
-const Equipo = require("../models/equipo.model");
-const Edificio = require("../models/edificio.model");
-const Laboratorio = require("../models/laboratorio.model");
+import mongoose from "mongoose";
+import Equipo from "../models/equipo.model.js";
+import Edificio from "../models/edificio.model.js";
+import Laboratorio from "../models/laboratorio.model.js";
 
-const seedEquipos = async () => {
+export const seedEquipos = async () => {
   try {
     await Equipo.deleteMany({});
 
@@ -54,5 +54,3 @@ const seedEquipos = async () => {
     console.error("❌ Error al sembrar los equipos:", error);
   }
 };
-
-module.exports = { seedEquipos };

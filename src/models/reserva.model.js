@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 /* Representa la asignación concreta de tiempo, espacio y recursos físicos.
 Se genera automáticamente tras la aprobación de un Pedido.
@@ -27,4 +27,4 @@ const reservaSchema = new mongoose.Schema({
   }]
 }, { timestamps: true });
 
-module.exports = mongoose.model('Reserva', reservaSchema);
+export default mongoose.models.Reserva || mongoose.model('Reserva', reservaSchema);

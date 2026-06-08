@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const edificioSchema = new mongoose.Schema(
   {
@@ -36,15 +36,16 @@ const edificioSchema = new mongoose.Schema(
 );
 
 /**
- * Virtual para contar laboratorios
+ * Virtual para contar laboratorios (excluyendo los eliminados)
  */
 edificioSchema.virtual("cantidadLaboratorios", {
   ref: "Laboratorio",
   localField: "_id",
   foreignField: "edificioId",
+  match: { estado: { $ne: "eliminado" } },
   count: true,
 });
 
 const Edificio = mongoose.model("Edificio", edificioSchema);
 
-module.exports = Edificio;
+export default Edificio;

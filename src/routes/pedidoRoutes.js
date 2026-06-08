@@ -1,9 +1,9 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const pedidoControllers = require("../controllers/pedidoControllers");
+import * as pedidoControllers from "../controllers/pedidoControllers.js";
 
-const validarPedido = require("../middlewares/validatePedidos");
-const { validarJWT, validarRol } = require("../middlewares/validateJWT");
+import validarPedido from "../middlewares/validatePedidos.js";
+import { validarJWT, validarRol } from "../middlewares/validateJWT.js";
 
 // GET: Obtener todos los pedidos o uno por ID
 router.get("/", validarJWT, pedidoControllers.getPedidos);
@@ -21,8 +21,7 @@ router.patch("/:id/estado", validarJWT, validarRol("PERSONAL","ADMIN"), pedidoCo
 router.patch("/:id/aprobar", validarJWT, validarRol("PERSONAL","ADMIN"), pedidoControllers.aprobarPedido); // Ruta dedicada para aprobar y descontar stock
 router.patch("/:id/finalizar", validarJWT, validarRol("PERSONAL","ADMIN"), pedidoControllers.finalizarPedido); // Ruta para cerrar el pedido y liberar equipos
 
-// DELETE: Eliminar un pedido (SOLO ADMIN PUEDE ELIMINAR)
-// A CHEQUEAR SI SOLO EL ADMIN
-router.delete("/:id", validarJWT, validarRol("ADMIN"), pedidoControllers.borrarPedido);
+// DELETE: Eliminar un pedido de forma lógica (SOLO ADMIN PUEDE ELIMINAR)
+router.delete("/:id", validarJWT, validarRol("ADMIN"), pedidoControllers.borrarPedidoLogico);
 
-module.exports = router;
+export default router;

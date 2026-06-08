@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const equipoSchema = new mongoose.Schema(
   {
@@ -13,10 +13,12 @@ const equipoSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+      trim: true,
     },
     tipo: {
       type: String,
       required: true,
+      trim: true,
     },
     esFijo: {
       type: Boolean,
@@ -34,12 +36,18 @@ const equipoSchema = new mongoose.Schema(
     edificioId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Edificio",
-      required: true,
+      default: null,
       index: true,
     },
     laboratorioId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Laboratorio",
+      index: true,
+      default: null,
+    },
+    activo: {
+      type: Boolean,
+      default: true,
       index: true,
     },
   },
@@ -56,16 +64,14 @@ const equipoSchema = new mongoose.Schema(
   },
 );
 
-equipoSchema.pre("save", function () {
-  if (this.isModified("esFijo") || this.isModified("laboratorioId")) {
-    if (this.esFijo && !this.laboratorioId) {
-      throw new Error("Un equipo fijo debe tener laboratorioId asignado");
-    }
-
-    if (!this.esFijo && this.laboratorioId) {
-      throw new Error("Un equipo móvil no debe tener laboratorioId");
-    }
+equipoSchema.pre("validate", function () {
+  // Validación de respaldo (Última línea de defensa)
+  if (this.esFijo === true && !this.laboratorioId) {
+    this.invalidate('laboratorioId', 'Un equipo fijo debe tener laboratorioId asignado');
+  }
+  if (this.esFijo === false && this.laboratorioId != null) {
+    this.invalidate('laboratorioId', 'Un equipo móvil no debe tener laboratorioId');
   }
 });
 
-module.exports = mongoose.model('Equipo', equipoSchema);
+export default mongoose.models.Equipo || mongoose.model('Equipo', equipoSchema);

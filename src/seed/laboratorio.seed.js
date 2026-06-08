@@ -1,5 +1,5 @@
-const Laboratorio = require("../models/laboratorio.model");
-const Edificio = require("../models/edificio.model");
+import Laboratorio from "../models/laboratorio.model.js";
+import Edificio from "../models/edificio.model.js";
 
 const laboratoriosPorDefecto = [
   {
@@ -28,7 +28,7 @@ const laboratoriosPorDefecto = [
   },
 ];
 
-const seedLaboratorios = async () => {
+export const seedLaboratorios = async () => {
   try {
     const edificioNombre = "Edificio Central";
     let edificio = await Edificio.findOne({ nombre: edificioNombre });
@@ -52,8 +52,4 @@ const seedLaboratorios = async () => {
   } catch (error) {
     console.error("Error al sembrar laboratorios:", error);
   }
-};
-
-module.exports = {
-  seedLaboratorios,
 };

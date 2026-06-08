@@ -1,4 +1,4 @@
-const Actividad = require("../models/actividad.model");
+import Actividad from "../models/actividad.model.js";
 
 // C: Crear una nueva actividad
 const createActividad = async (req, res) => {
@@ -16,7 +16,7 @@ const createActividad = async (req, res) => {
 const getActividades = async (req, res) => {
   try {
     const { estado } = req.query;
-    const filtros = {};
+    const filtros = { activo: { $ne: false } };
 
     if (estado) filtros.estado = estado;
 
@@ -32,7 +32,7 @@ const getActividades = async (req, res) => {
 const getActividadById = async (req, res) => {
   try {
     const { id } = req.params;
-    const actividad = await Actividad.findById(id);
+    const actividad = await Actividad.findOne({ _id: id, activo: { $ne: false } });
     
     if (!actividad) {
       return res.status(404).json({ error: "Actividad no encontrada" });
@@ -49,10 +49,11 @@ const updateActividad = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const actividadActualizada = await Actividad.findByIdAndUpdate(id, req.body, { 
-      new: true, 
-      runValidators: true 
-    });
+    const actividadActualizada = await Actividad.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      req.body,
+      { new: true, runValidators: true }
+    );
 
     if (!actividadActualizada) {
       return res.status(404).json({ error: "Actividad no encontrada" });
@@ -68,19 +69,23 @@ const updateActividad = async (req, res) => {
 const deleteActividad = async (req, res) => {
   try {
     const { id } = req.params;
-    const actividadEliminada = await Actividad.findByIdAndDelete(id);
+    const actividadEliminada = await Actividad.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      { activo: false },
+      { new: true }
+    );
 
     if (!actividadEliminada) {
       return res.status(404).json({ error: "Actividad no encontrada" });
     }
 
-    return res.status(200).json({ message: "Actividad eliminada correctamente" });
+    return res.status(200).json({ message: "Actividad marcada como eliminada (borrado lógico)", actividad: actividadEliminada });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 };
 
-module.exports = {
+export {
   createActividad,
   getActividades,
   getActividadById,

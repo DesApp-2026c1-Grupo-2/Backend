@@ -7,6 +7,14 @@ import Reserva from "../models/reserva.model.js";
 const verificarConflictos = async (pedido) => {
   const conflictos = [];
 
+  let inicioReal = null;
+  let finReal = null;
+  if (pedido.fechaHora && !isNaN(new Date(pedido.fechaHora).getTime())) {
+    const duracionClase = pedido.duracionClase || 120; // Fallback (120 min) para pedidos antiguos
+    inicioReal = new Date(pedido.fechaHora.getTime() - 60 * 60 * 1000);
+    finReal = new Date(pedido.fechaHora.getTime() + (duracionClase + 30) * 60 * 1000);
+  }
+
   // =========================
   // LABORATORIO
   // =========================
@@ -45,22 +53,25 @@ const verificarConflictos = async (pedido) => {
       });
     }
 
-    const pedidoExistente = await Pedido.findOne({
-      _id: { $ne: pedido._id },
-      laboratorio: pedido.laboratorio,
-      fechaHora: pedido.fechaHora,
-      estado: {
-        $in: ["Pendiente", "En Revisión", "Aceptado"],
-      },
-    });
-
-    if (pedidoExistente) {
-      conflictos.push({
-        tipo: "laboratorio_ocupado",
-        severidad: "alta",
-        mensaje:
-          "Ya existe un pedido para ese laboratorio en el horario solicitado.",
+    if (inicioReal && finReal) {
+      const pedidoExistente = await Pedido.findOne({
+        _id: { $ne: pedido._id },
+        laboratorio: pedido.laboratorio,
+        fechaInicioReal: { $lt: finReal },
+        fechaFinReal: { $gt: inicioReal },
+        estado: {
+          $in: ["Pendiente", "En Revisión", "Aceptado"],
+        },
       });
+
+      if (pedidoExistente) {
+        conflictos.push({
+          tipo: "laboratorio_ocupado",
+          severidad: "alta",
+          mensaje:
+            "Ya existe un pedido para ese laboratorio en el horario solicitado (incluyendo el período de uso).",
+        });
+      }
     }
   }
 
@@ -88,21 +99,29 @@ const verificarConflictos = async (pedido) => {
         continue;
       }
 
-      // Delegamos la verificación temporal de los equipos a la Reserva, ignorando al pedido actual
-      const reservaOcupando = await Reserva.findOne({
-        pedidoId: { $ne: pedido._id },
-        fechaHora: pedido.fechaHora,
-        estado: { $in: ['Pendiente', 'En Curso'] },
-        "equiposReservados.equipoId": r.recursoId
-      });
+      let equipoConflictoDetectado = false;
 
-      if (reservaOcupando) {
-        conflictos.push({
-          tipo: "equipo_reservado",
-          severidad: "alta",
-          mensaje: `El equipo '${equipo.nombre}' ya se encuentra reservado en ese horario.`,
+      if (inicioReal && finReal) {
+        // Delegamos la verificación temporal de los equipos a la Reserva, ignorando al pedido actual
+        const reservaOcupando = await Reserva.findOne({
+          pedidoId: { $ne: pedido._id },
+          fechaInicioReal: { $lt: finReal },
+          fechaFinReal: { $gt: inicioReal },
+          estado: { $in: ['Pendiente', 'En Curso'] },
+          "equiposReservados.equipoId": r.recursoId
         });
-      } else if (equipo.estado !== "disponible" && equipo.estado !== "reservado") {
+
+        if (reservaOcupando) {
+          conflictos.push({
+            tipo: "equipo_reservado",
+            severidad: "alta",
+            mensaje: `El equipo '${equipo.nombre}' ya se encuentra reservado en ese período.`,
+          });
+          equipoConflictoDetectado = true;
+        }
+      }
+
+      if (!equipoConflictoDetectado && equipo.estado !== "disponible" && equipo.estado !== "reservado") {
         conflictos.push({
           tipo: "equipo_no_disponible",
           severidad: "alta",

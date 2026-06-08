@@ -169,9 +169,17 @@ const login = async (req, res) => {
 const verify = async (req, res) => {
   try {
 
+    const usuario = await Usuario.findById(req.usuario.id);
+
+    if (!usuario) {
+      return res.status(401).json({
+        message: "Usuario no encontrado"
+      });
+    }
+
     res.status(200).json({
       ok: true,
-      usuario: req.usuario
+      usuario
     });
 
   } catch (error) {

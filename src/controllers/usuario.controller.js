@@ -131,6 +131,7 @@ const login = async (req, res) => {
         message: 'Credenciales inválidas'
       });
     }
+    
 
     // GENERAR JWT
     const token = jwt.sign(
@@ -162,11 +163,32 @@ const login = async (req, res) => {
   }
 };
 
+/**
+ * Verificar token de autenticación
+ */
+const verify = async (req, res) => {
+  try {
+
+    res.status(200).json({
+      ok: true,
+      usuario: req.usuario
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      message: "Error al verificar token"
+    });
+
+  }
+};
+
 export {
   getUsuarios,
   getUsuarioById,
   createUsuario,
   updateUsuario,
   deleteUsuario,
-  login
+  login,
+  verify,
 };

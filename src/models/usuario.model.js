@@ -1,5 +1,5 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 const usuarioSchema = new mongoose.Schema({
   nombre: {
@@ -30,6 +30,11 @@ const usuarioSchema = new mongoose.Schema({
     sparse: true, // Permite valores nulos (ej: si un Admin no tiene legajo), pero si se ingresa, debe ser único
     trim: true
   },
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
   rol: {
     type: String,
     enum: {
@@ -41,26 +46,34 @@ const usuarioSchema = new mongoose.Schema({
   estado: {
     type: String,
     enum: ['ACTIVO', 'PENDIENTE', 'SUSPENDIDO'],
-    default: 'PENDIENTE' // Asume el modelo de "Registro con aprobación pendiente"
+    default: 'ACTIVO' // Asume el modelo de "Registro con aprobación activo automáticamente" //mas adelante deberiamos cambiarlo
+
   }
 }, {
   timestamps: true, // Genera automáticamente los campos createdAt y updatedAt
   versionKey: false // Evita que MongoDB agregue el campo interno __v
 });
 
-usuarioSchema.pre('save', async function(next) {
-
+usuarioSchema.pre('save', async function() {
   // Evita re-hashear si no cambió
   if (!this.isModified('password')) {
-    return next();
+    return;
+  }
+
+  // Validar que el password exista
+  if (!this.password) {
+    throw new Error('La contraseña es obligatoria');
   }
 
   // Hash
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
-
-  next();
 });
+
+// Método para comparar contraseñas
+usuarioSchema.methods.compararPassword = async function(passwordIngresada) {
+  return await bcrypt.compare(passwordIngresada, this.password);
+};
 
 // Método para limpiar la respuesta: evita que la contraseña viaje al frontend
 usuarioSchema.methods.toJSON = function() {
@@ -68,6 +81,6 @@ usuarioSchema.methods.toJSON = function() {
   return usuario;
 };
 
-const Usuario = mongoose.model('Usuario', usuarioSchema);
+const Usuario = mongoose.models.Usuario || mongoose.model('Usuario', usuarioSchema);
 
-module.exports = Usuario;
+export default Usuario;

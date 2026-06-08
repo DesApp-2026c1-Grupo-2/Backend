@@ -1,6 +1,6 @@
-const { Router } = require('express')
+import { Router } from 'express';
 const router = Router()
-const { crearEdificio, obtenerEdificios, obtenerEdificioPorId, actualizarEdificio,eliminarEdificioLogico} = require('../controllers/edificioControllers');
+import { crearEdificio, obtenerEdificios, obtenerEdificioPorId, actualizarEdificio,eliminarEdificioLogico} from '../controllers/edificioControllers.js';
 
 
 // C: Crear un nuevo edificio
@@ -15,4 +15,5 @@ router.get('/:id', obtenerEdificioPorId);
 router.put('/:id', actualizarEdificio);
 // D: Eliminar un edificio (lógico)
 router.delete('/:id', eliminarEdificioLogico);
-module.exports = router;
+
+export default router;

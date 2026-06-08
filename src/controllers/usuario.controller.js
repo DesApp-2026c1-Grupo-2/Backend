@@ -1,13 +1,13 @@
-const Usuario = require('../models/usuario.model');
-const bcrypt = require('bcrypt');
-const jwt = require("jsonwebtoken");
+import Usuario from '../models/usuario.model.js';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
 /**
  * Obtener todos los usuarios
  */
 const getUsuarios = async (req, res) => {
   try {
-    const usuarios = await Usuario.find();
+    const usuarios = await Usuario.find({ activo: { $ne: false } });
     res.status(200).json(usuarios);
   } catch (error) {
     res.status(500).json({ message: 'Error al obtener los usuarios', error: error.message });
@@ -20,7 +20,7 @@ const getUsuarios = async (req, res) => {
 const getUsuarioById = async (req, res) => {
   try {
     const { id } = req.params;
-    const usuario = await Usuario.findById(id);
+    const usuario = await Usuario.findOne({ _id: id, activo: { $ne: false } });
     
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
@@ -39,11 +39,10 @@ const createUsuario = async (req, res) => {
   try {
     const datosUsuario = { ...req.body };
     
-    if (datosUsuario.password) {
-      const salt = await bcrypt.genSalt(10);
-      datosUsuario.password = await bcrypt.hash(datosUsuario.password, salt);
+    if (datosUsuario.legajo !== undefined && String(datosUsuario.legajo).trim() === '') {
+      delete datosUsuario.legajo;
     }
-    
+
     const nuevoUsuario = new Usuario(datosUsuario);
     const usuarioGuardado = await nuevoUsuario.save();
     
@@ -61,15 +60,19 @@ const updateUsuario = async (req, res) => {
     const { id } = req.params;
     
     const datosActualizados = { ...req.body };
-    
-    if (datosActualizados.password) {
-      const salt = await bcrypt.genSalt(10);
-      datosActualizados.password = await bcrypt.hash(datosActualizados.password, salt);
+
+    if (datosActualizados.legajo !== undefined && String(datosActualizados.legajo).trim() === '') {
+      datosActualizados.$unset = { legajo: 1 };
+      delete datosActualizados.legajo;
     }
 
     // { new: true } devuelve el documento actualizado
     // { runValidators: true } aplica las validaciones definidas en tu Schema (ej: enums y matches)
-    const usuarioActualizado = await Usuario.findByIdAndUpdate(id, datosActualizados, { new: true, runValidators: true });
+    const usuarioActualizado = await Usuario.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      datosActualizados,
+      { new: true, runValidators: true }
+    );
     
     if (!usuarioActualizado) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
@@ -87,13 +90,17 @@ const updateUsuario = async (req, res) => {
 const deleteUsuario = async (req, res) => {
   try {
     const { id } = req.params;
-    const usuarioEliminado = await Usuario.findByIdAndDelete(id);
+    const usuarioEliminado = await Usuario.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      { activo: false },
+      { new: true }
+    );
     
     if (!usuarioEliminado) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
     
-    res.status(200).json({ message: 'Usuario eliminado con éxito' });
+    res.status(200).json({ message: 'Usuario marcado como eliminado (borrado lógico)', usuario: usuarioEliminado });
   } catch (error) {
     res.status(500).json({ message: 'Error al eliminar el usuario', error: error.message });
   }
@@ -107,8 +114,8 @@ const login = async (req, res) => {
 
     const { email, password } = req.body;
 
-    // Buscar usuario
-    const usuario = await Usuario.findOne({ email });
+    // Buscar usuario activo
+    const usuario = await Usuario.findOne({ email, activo: { $ne: false } });
 
     if (!usuario) {
       return res.status(401).json({
@@ -116,11 +123,8 @@ const login = async (req, res) => {
       });
     }
 
-    // Comparar password
-    const isMatch = await bcrypt.compare(
-      password,
-      usuario.password
-    );
+    // Comparar password usando método del modelo
+    const isMatch = await usuario.compararPassword(password);
 
     if (!isMatch) {
       return res.status(401).json({
@@ -158,7 +162,7 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   getUsuarios,
   getUsuarioById,
   createUsuario,

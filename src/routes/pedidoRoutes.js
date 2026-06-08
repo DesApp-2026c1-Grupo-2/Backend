@@ -1,9 +1,9 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const pedidoControllers = require("../controllers/pedidoControllers");
+import * as pedidoControllers from "../controllers/pedidoControllers.js";
 
-const validarPedido = require("../middlewares/validatePedidos");
-const { validarJWT, validarRol } = require("../middlewares/validateJWT");
+import validarPedido from "../middlewares/validatePedidos.js";
+import { validarJWT, validarRol } from "../middlewares/validateJWT.js";
 
 // GET: Obtener todos los pedidos o uno por ID
 router.get("/", validarJWT, pedidoControllers.getPedidos);
@@ -27,4 +27,4 @@ router.delete("/:id", validarJWT, validarRol("ADMIN"), pedidoControllers.borrarP
 // POST: Agregar un comentario a un pedido
 router.post("/:id/comentarios", validarJWT, pedidoControllers.agregarComentario);
 
-module.exports = router;
+export default router;

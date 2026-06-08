@@ -1,8 +1,9 @@
-const Pedido = require("../models/pedido.model");
-const Laboratorio = require("../models/laboratorio.model");
-const Equipo = require("../models/equipo.model");
-const Item = require("../models/item.model");
-const Lote = require("../models/lote.model");
+import Pedido from "../models/pedido.model.js";
+import Laboratorio from "../models/laboratorio.model.js";
+import Equipo from "../models/equipo.model.js";
+import Item from "../models/item.model.js";
+import Lote from "../models/lote.model.js";
+import Reserva from "../models/reserva.model.js";
 
 const construirFechaHora = (data) => {
   if (data.fecha && data.hora) {
@@ -77,7 +78,7 @@ const validarRecursoItem = async (recurso) => {
   return null;
 };
 
-const validarRecursos = async (data) => {
+const validarRecursos = async (data, fechaHora) => {
   const detalles = [];
 
   if (!Array.isArray(data.recursos) || data.recursos.length === 0) {
@@ -86,24 +87,81 @@ const validarRecursos = async (data) => {
   }
 
   for (const recurso of data.recursos) {
-    if (!recurso.tipoRecurso || !recurso.recursoId || !recurso.cantidad) {
-      detalles.push("Cada recurso debe incluir tipoRecurso, recursoId y cantidad.");
+
+    if (
+      !recurso.tipoRecurso ||
+      !recurso.recursoId ||
+      !recurso.cantidad
+    ) {
+      detalles.push(
+        "Cada recurso debe incluir tipoRecurso, recursoId y cantidad."
+      );
       continue;
     }
 
     if (recurso.tipoRecurso === "Equipo") {
-      const problema = await validarRecursoEquipo(recurso);
-      if (problema) detalles.push(problema);
+
+      const equipo = await Equipo.findById(recurso.recursoId);
+
+      if (!equipo) {
+        detalles.push(
+          "Uno de los equipos solicitados no existe."
+        );
+        continue;
+      }
+
+      const reservaOcupando = await Reserva.findOne({
+        fechaHora,
+        estado: { $in: ["Pendiente", "En Curso"] },
+        "equiposReservados.equipoId": recurso.recursoId,
+      });
+
+      if (reservaOcupando) {
+        detalles.push(
+          `El equipo '${equipo.nombre}' ya está reservado en ese horario.`
+        );
+      }
+
+      if (
+        equipo.estado !== "disponible" &&
+        equipo.estado !== "reservado"
+      ) {
+        detalles.push(
+          `El equipo '${equipo.nombre}' no está operativo.`
+        );
+      }
+
       continue;
     }
 
     if (recurso.tipoRecurso === "Item") {
-      const problema = await validarRecursoItem(recurso);
-      if (problema) detalles.push(problema);
+
+      const item = await Item.findById(recurso.recursoId);
+
+      if (!item) {
+        detalles.push(
+          "Uno de los ítems solicitados no existe."
+        );
+        continue;
+      }
+
+      const stockDisponible =
+        await Lote.calcularStockDisponible(
+          recurso.recursoId
+        );
+
+      if (stockDisponible < recurso.cantidad) {
+        detalles.push(
+          `Stock insuficiente de '${item.nombre}'. Solicitado: ${recurso.cantidad}, Disponible: ${stockDisponible}.`
+        );
+      }
+
       continue;
     }
 
-    detalles.push(`Tipo de recurso no válido: ${recurso.tipoRecurso}`);
+    detalles.push(
+      `Tipo de recurso no válido: ${recurso.tipoRecurso}`
+    );
   }
 
   return detalles;
@@ -124,7 +182,7 @@ const validarPedido = async (req, res, next) => {
     const problemaLaboratorio = await validarLaboratorioCapacidad(data);
     if (problemaLaboratorio) detalleProblemas.push(problemaLaboratorio);
 
-    const recursosProblemas = await validarRecursos(data);
+    const recursosProblemas = await validarRecursos(data, fechaHora);
     detalleProblemas.push(...recursosProblemas);
 
     req.detalleProblemas = detalleProblemas;
@@ -136,4 +194,4 @@ const validarPedido = async (req, res, next) => {
   }
 };
 
-module.exports = validarPedido;
+export default validarPedido;

@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 /* Representa un lote de un ítem específico en el inventario. 
 Un lote es una cantidad física de un ítem que puede estar en diferentes estados (disponible, reservado, en uso, descartado). 
@@ -14,12 +14,17 @@ const loteSchema = new mongoose.Schema({
   ubicacion: { type: String, required: true },
   estado: { 
     type: String, 
-    enum: ['disponible', 'reservado', 'en_uso', 'descartado'], 
+    enum: ['disponible', 'en_uso', 'descartado'], 
     default: 'disponible' 
   },
   fechaCreacion: { type: Date, default: Date.now },
   fechaVencimiento: { type: Date },
-  actividadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Actividad' } // Solo si está reservado/en uso
+  actividadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Actividad' }, // Solo si está reservado/en uso
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  }
 }, { timestamps: true });
 
 // Índice para optimizar el cálculo de stock
@@ -30,7 +35,8 @@ loteSchema.statics.calcularStockDisponible = async function(itemId) {
     { 
       $match: { 
         itemId: new mongoose.Types.ObjectId(itemId),
-        estado: 'disponible' 
+        estado: 'disponible',
+        activo: { $ne: false }
       } 
     },
     { 
@@ -44,4 +50,4 @@ loteSchema.statics.calcularStockDisponible = async function(itemId) {
   return resultado.length > 0 ? resultado[0].stockTotal : 0;
 };
 
-module.exports = mongoose.model('Lote', loteSchema);
+export default mongoose.models.Lote || mongoose.model('Lote', loteSchema);

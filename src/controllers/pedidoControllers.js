@@ -1,8 +1,9 @@
-const Pedido = require("../models/pedido.model");
-const Lote = require("../models/lote.model");
-const Equipo = require("../models/equipo.model");
-const Item = require("../models/item.model");
-const { verificarConflictos } = require("../services/pedidoConflictos");
+import Pedido from "../models/pedido.model.js";
+import Lote from "../models/lote.model.js";
+import Equipo from "../models/equipo.model.js";
+import Item from "../models/item.model.js";
+import { verificarConflictos } from "../services/pedidoConflictos.js";
+import Reserva from "../models/reserva.model.js";
 
 const getPedidos = async (req, res) => {
   try {
@@ -103,12 +104,43 @@ const aprobarPedido = async (req, res) => {
     }
 
     // 2. Proceder con el descuento de stock en Lotes y reserva de Equipos
+    const checklist = [];
+    let requiereCarrito = false;
+
     for (const r of pedido.recursos) {
       const ref = r.modeloRef || r.tipoRecurso;
       
       if (ref === "Equipo") {
-        await Equipo.findByIdAndUpdate(r.recursoId, { estado: "reservado" });
+        requiereCarrito = true;
+        checklist.push({
+          descripcion: "Acondicionar equipo reservado y verificar su funcionamiento.",
+          tipo: "Logistica"
+        });
       } else if (ref === "Item") {
+        const item = await Item.findById(r.recursoId);
+        
+        if (item) {
+          requiereCarrito = true;
+          if (item.tipo === "reactivo") {
+            if (item.requiereReceta) {
+              checklist.push({
+                descripcion: `Preparar reactivo a partir de sustancias base: ${item.nombre}.`,
+                tipo: "Preparacion"
+              });
+            } else {
+              checklist.push({
+                descripcion: `Asegurar disponibilidad del reactivo: ${item.nombre}. Gestionar compra si el stock base es bajo.`,
+                tipo: "Compra"
+              });
+            }
+          } else if (item.tipo === "material") {
+            checklist.push({
+              descripcion: `Acondicionar material: ${item.nombre}.`,
+              tipo: "Logistica"
+            });
+          }
+        }
+
         let cantidadRestante = r.cantidad;
         
         // Inicializamos el arreglo para guardar el registro de qué lotes tocamos
@@ -146,9 +178,47 @@ const aprobarPedido = async (req, res) => {
       }
     }
 
+    if (requiereCarrito) {
+      checklist.push({
+        descripcion: "Colocar todos los materiales, equipos y reactivos en los carritos destinados al aula.",
+        tipo: "General"
+      });
+    }
+
     // 3. Actualizar estado del pedido
     pedido.estado = "Aceptado";
+    pedido.checklist = checklist;
     const pedidoAprobado = await pedido.save();
+
+    // 4. Crear la Reserva asociada de forma automática
+    const equiposReservados = [];
+    const materialesReservados = [];
+
+    for (const r of pedido.recursos) {
+      const ref = r.modeloRef || r.tipoRecurso;
+      if (ref === "Equipo") {
+        equiposReservados.push({ equipoId: r.recursoId });
+      } else if (ref === "Item") {
+        materialesReservados.push({
+          itemId: r.recursoId,
+          cantidadTotal: r.cantidad,
+          lotesUsados: r.lotesDescontados ? r.lotesDescontados.map(l => ({
+            loteId: l.loteId,
+            cantidad: l.cantidadDescontada
+          })) : []
+        });
+      }
+    }
+
+    const nuevaReserva = new Reserva({
+      pedidoId: pedidoAprobado._id,
+      laboratorioId: pedidoAprobado.laboratorio,
+      docenteId: pedidoAprobado.docente,
+      fechaHora: pedidoAprobado.fechaHora,
+      equiposReservados,
+      materialesReservados
+    });
+    await nuevaReserva.save();
 
     // Poblamos para devolver el objeto completo al frontend
     await pedidoAprobado.populate([
@@ -181,7 +251,6 @@ const finalizarPedido = async (req, res) => {
       const ref = r.modeloRef || r.tipoRecurso;
       
       if (ref === "Equipo") {
-        await Equipo.findByIdAndUpdate(r.recursoId, { estado: "disponible" });
       } else if (ref === "Item") {
         const item = await Item.findById(r.recursoId);
         // Solo reponemos los ítems que NO son consumibles (ej. materiales como tubos de ensayo)
@@ -198,6 +267,12 @@ const finalizarPedido = async (req, res) => {
     // 2. Actualizar estado del pedido
     pedido.estado = "Finalizado";
     const pedidoFinalizado = await pedido.save();
+
+    // 3. Sincronizar el estado de la Reserva asociada
+    await Reserva.findOneAndUpdate(
+      { pedidoId: pedido._id },
+      { estado: 'Finalizada' }
+    );
 
     // Poblamos para devolver el objeto completo al frontend
     await pedidoFinalizado.populate([
@@ -372,7 +447,7 @@ const agregarComentario = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   getPedidos,
   getPedidoById,
   createPedido,

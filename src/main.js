@@ -1,20 +1,24 @@
-const express = require('express');
-const mongoose = require('mongoose');
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import 'dotenv/config';
+
 const app = express();
-const cors = require('cors');
-require('dotenv').config();
 
 // --- Importación de Rutas ---
-const edificioRouter = require('./routes/edificioRoutes');
-const laboratorioRouter = require('./routes/laboratorioRoutes');
-const equipoRouter = require('./routes/equipoRoutes');
-const pedidoRouter = require('./routes/pedidoRoutes');
-const usuarioRouter = require('./routes/usuarioRoutes');
-const itemRouter = require('./routes/itemRoutes');
-const loteRouter = require('./routes/loteRoutes');
-const recetaReactivoRouter = require('./routes/recetaReactivoRoutes');
-const actividadRouter = require('./routes/actividadRoutes');
-const produccionReactivoRouter = require('./routes/produccionReactivoRoutes');
+import edificioRouter from './routes/edificioRoutes.js';
+import laboratorioRouter from './routes/laboratorioRoutes.js';
+import equipoRouter from './routes/equipoRoutes.js';
+import pedidoRouter from './routes/pedidoRoutes.js';
+import usuarioRouter from './routes/usuarioRoutes.js';
+import itemRouter from './routes/itemRoutes.js';
+import loteRouter from './routes/loteRoutes.js';
+import recetaReactivoRouter from './routes/recetaReactivoRoutes.js';
+import actividadRouter from './routes/actividadRoutes.js';
+import produccionReactivoRouter from './routes/produccionReactivoRoutes.js';
+import reservaRoutes from './routes/reservaRoutes.js';
+
+
 
 // Middlewares
 app.use(cors());
@@ -32,6 +36,7 @@ app.use('/lotes', loteRouter);
 app.use('/receta-reactivos', recetaReactivoRouter);
 app.use('/actividades', actividadRouter);
 app.use('/produccion-reactivos', produccionReactivoRouter);
+app.use('/reservas', reservaRoutes);
 
 app.get('/__backend-test__', (req, res) => res.json({ok: true}));
 const PORT = process.env.PORT || 3000;

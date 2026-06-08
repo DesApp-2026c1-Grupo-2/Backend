@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 /* Representa la receta maestra de un reactivo, que define su composición en términos de las sustancias que lo conforman y sus cantidades.
 Cada reactivo tiene una receta única que especifica qué sustancias se necesitan para producirlo y en qué cantidades. 
 Esta información es esencial para calcular el stock real de cada reactivo, teniendo en cuenta su producción (que aumenta el stock) y su consumo (que lo disminuye). 
@@ -15,7 +15,12 @@ const recetaReactivoSchema = new mongoose.Schema({
     sustanciaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item', required: true },
     cantidad: { type: Number, required: true, min: 0 },
     unidad: { type: String, required: true }
-  }]
+  }],
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  }
 }, { timestamps: true });
 
-module.exports = mongoose.model('RecetaReactivo', recetaReactivoSchema);
+export default mongoose.models.RecetaReactivo || mongoose.model('RecetaReactivo', recetaReactivoSchema);

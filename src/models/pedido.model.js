@@ -1,10 +1,10 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const recursoSchema = new mongoose.Schema({
   recursoId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
-    refPath: "recursos.tipoRecurso", // Permite popular dinámicamente entre Equipo e Item
+    refPath: "tipoRecurso", // Permite popular dinámicamente entre Equipo e Item
   },
   tipoRecurso: {
     type: String,
@@ -37,6 +37,21 @@ const comentarioSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   _id: true
+const tareaSchema = new mongoose.Schema({
+  descripcion: {
+    type: String,
+    required: true,
+  },
+  estado: {
+    type: String,
+    enum: ["Pendiente", "En Proceso", "Completada"],
+    default: "Pendiente",
+  },
+  tipo: {
+    type: String,
+    enum: ["Logistica", "Preparacion", "Compra", "General"],
+    default: "General",
+  }
 });
 
 const pedidoSchema = new mongoose.Schema({
@@ -72,6 +87,10 @@ const pedidoSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+  checklist: {
+    type: [tareaSchema],
+    default: [],
+  },
   activo: {
     type: Boolean,
     default: true,
@@ -79,6 +98,8 @@ const pedidoSchema = new mongoose.Schema({
   },
   comentarios: [comentarioSchema],
 }, { 
+},
+{
   timestamps: true,
   strict: true,
   toJSON: {
@@ -88,7 +109,8 @@ const pedidoSchema = new mongoose.Schema({
       delete ret.__v;
     },
   },
-});
+}
+);
 
 // Índices para optimizar queries frecuentes
 pedidoSchema.index({ docente: 1, estado: 1 });
@@ -102,4 +124,4 @@ pedidoSchema.pre("save", function() {
   }
 });
 
-module.exports = mongoose.model("pedidos", pedidoSchema);
+export default mongoose.models.Pedido || mongoose.model("Pedido", pedidoSchema);

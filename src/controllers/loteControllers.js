@@ -1,4 +1,4 @@
-const Lote = require("../models/lote.model");
+import Lote from "../models/lote.model.js";
 
 // C: Crear un nuevo lote
 const createLote = async (req, res) => {
@@ -16,7 +16,7 @@ const createLote = async (req, res) => {
 const getLotes = async (req, res) => {
   try {
     const { itemId, estado, ubicacion } = req.query;
-    const filtros = {};
+    const filtros = { activo: { $ne: false } };
 
     if (itemId) filtros.itemId = itemId;
     if (estado) filtros.estado = estado;
@@ -37,7 +37,7 @@ const getLotes = async (req, res) => {
 const getLoteById = async (req, res) => {
   try {
     const { id } = req.params;
-    const lote = await Lote.findById(id)
+    const lote = await Lote.findOne({ _id: id, activo: { $ne: false } })
       .populate('itemId', 'nombre codigo tipo')
       .populate('actividadId', 'nombre estado');
     
@@ -56,10 +56,11 @@ const updateLote = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const loteActualizado = await Lote.findByIdAndUpdate(id, req.body, { 
-      new: true, 
-      runValidators: true 
-    });
+    const loteActualizado = await Lote.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      req.body,
+      { new: true, runValidators: true }
+    );
 
     if (!loteActualizado) {
       return res.status(404).json({ error: "Lote no encontrado" });
@@ -75,19 +76,23 @@ const updateLote = async (req, res) => {
 const deleteLote = async (req, res) => {
   try {
     const { id } = req.params;
-    const loteEliminado = await Lote.findByIdAndDelete(id);
+    const loteEliminado = await Lote.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      { activo: false },
+      { new: true }
+    );
 
     if (!loteEliminado) {
       return res.status(404).json({ error: "Lote no encontrado" });
     }
 
-    return res.status(200).json({ message: "Lote eliminado correctamente" });
+    return res.status(200).json({ message: "Lote marcado como eliminado (borrado lógico)", lote: loteEliminado });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 };
 
-module.exports = {
+export {
   createLote,
   getLotes,
   getLoteById,

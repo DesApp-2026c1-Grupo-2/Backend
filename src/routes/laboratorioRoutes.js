@@ -1,6 +1,6 @@
-const { Router } = require('express')
+import { Router } from 'express';
 const router = Router()
-const { 
+import { 
     crearLaboratorio, 
     obtenerLaboratorios, 
     obtenerLaboratorioPorId, 
@@ -9,7 +9,7 @@ const {
     actualizarEstadoLaboratorio,
     actualizarLaboratorio,
     eliminarLaboratorioLogico
-} = require('../controllers/laboratorioControllers');
+} from '../controllers/laboratorioControllers.js';
 
 
 // C: Crear un nuevo laboratorio
@@ -35,4 +35,4 @@ router.put('/:idLaboratorio', actualizarLaboratorio);
 // D: Eliminar un laboratorio (eliminación lógica)
 router.delete('/:idLaboratorio', eliminarLaboratorioLogico);
 
-module.exports = router;
+export default router;

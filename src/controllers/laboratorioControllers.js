@@ -1,4 +1,4 @@
-const  Laboratorio  = require('../models/laboratorio.model');
+import Laboratorio from '../models/laboratorio.model.js';
 
 // C: Crear un nuevo laboratorio
 const crearLaboratorio = async (req, res) => {
@@ -74,7 +74,7 @@ const actualizarEstadoLaboratorio = async (req, res) => {
         const { estado } = req.body;
 
         // Validación rápida del estado contra el enum definido
-        const estadosValidos = ["disponible", "reservado", "en mantenimiento", "fuera de servicio"];
+        const estadosValidos = ["disponible", "en mantenimiento", "fuera de servicio"];
         if (!estadosValidos.includes(estado)) {
             return res.status(400).json({ message: "Estado no válido. Los estados permitidos son: " + estadosValidos.join(', ') });
         }
@@ -127,7 +127,7 @@ const eliminarLaboratorioLogico = async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 };
-module.exports = {
+export {
     crearLaboratorio,
     obtenerLaboratorios,
     obtenerLaboratorioPorId,

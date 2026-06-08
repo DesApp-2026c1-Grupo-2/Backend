@@ -1,5 +1,5 @@
-const Item = require("../models/item.model")
-const Lote = require('../models/lote.model') // Necesario para validar antes de borrar
+import Item from "../models/item.model.js";
+import Lote from "../models/lote.model.js"; // Necesario para validar antes de borrar
 
 
 // C: Crear un nuevo item
@@ -20,7 +20,7 @@ const createItem = async (req, res) => {
 const getItems = async (req, res) => {
   try {
     const { tipo, esConsumible } = req.query;
-    const filtros = {};
+    const filtros = { activo: { $ne: false } };
 
     if (tipo) filtros.tipo = tipo;
     if (esConsumible !== undefined) filtros.esConsumible = esConsumible === 'true';
@@ -36,7 +36,7 @@ const getItems = async (req, res) => {
  const getItemById = async (req, res) => {
   try {
     const { id } = req.params;
-    const item = await Item.findById(id);
+    const item = await Item.findOne({ _id: id, activo: { $ne: false } });
     
     if (!item) {
       return res.status(404).json({ error: "Ítem no encontrado" });
@@ -59,10 +59,11 @@ const updateItem = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const itemActualizado = await Item.findByIdAndUpdate(id, req.body, { 
-      new: true, 
-      runValidators: true 
-    });
+    const itemActualizado = await Item.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      req.body, 
+      { new: true, runValidators: true }
+    );
 
     if (!itemActualizado) {
       return res.status(404).json({ error: "Ítem no encontrado" });
@@ -77,8 +78,8 @@ const updateItem = async (req, res) => {
   }
 };
 
-// D: Eliminar un item (Con protección de integridad)
-const deleteItem = async (req, res) => {
+// D: Eliminar un item de forma lógica (Con protección de integridad)
+const deleteItemLogico = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -90,22 +91,26 @@ const deleteItem = async (req, res) => {
       });
     }
 
-    const itemEliminado = await Item.findByIdAndDelete(id);
+    const itemEliminado = await Item.findOneAndUpdate(
+      { _id: id, activo: { $ne: false } },
+      { activo: false },
+      { new: true }
+    );
 
     if (!itemEliminado) {
       return res.status(404).json({ error: "Ítem no encontrado" });
     }
 
-    return res.status(200).json({ message: "Ítem eliminado correctamente" });
+    return res.status(200).json({ message: "Ítem marcado como eliminado (borrado lógico)", item: itemEliminado });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 };
 
-module.exports = {
+export {
   createItem,
   getItems,
   getItemById,
   updateItem,
-  deleteItem
+  deleteItemLogico
 };

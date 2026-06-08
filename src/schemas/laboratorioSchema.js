@@ -1,4 +1,4 @@
-const Joi = require("joi");
+import Joi from "joi";
 
 const objectIdRegex = /^[0-9a-fA-F]{24}$/;
 
@@ -42,4 +42,4 @@ const laboratorioSchemaJoi = Joi.object({
         .optional(),
 });
 
-module.exports = laboratorioSchemaJoi;
+export default laboratorioSchemaJoi;

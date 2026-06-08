@@ -1,13 +1,13 @@
-const { Router } = require('express');
+import { Router } from 'express';
 const router = Router();
 
-const {
+import {
   createActividad,
   getActividades,
   getActividadById,
   updateActividad,
   deleteActividad
-} = require('../controllers/actividadControllers');
+} from '../controllers/actividadControllers.js';
 
 // Rutas CRUD para Actividades
 router.get('/', getActividades);
@@ -16,4 +16,4 @@ router.post('/', createActividad);
 router.put('/:id', updateActividad);
 router.delete('/:id', deleteActividad);
 
-module.exports = router;
+export default router;

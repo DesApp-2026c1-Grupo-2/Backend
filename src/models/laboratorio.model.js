@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const laboratorioSchema = new mongoose.Schema(
     {
@@ -28,7 +28,7 @@ const laboratorioSchema = new mongoose.Schema(
 
         estado: {
         type: String,
-        enum: ["disponible", "reservado", "en mantenimiento", "fuera de servicio", "eliminado"],
+        enum: ["disponible", "en mantenimiento", "fuera de servicio", "eliminado"],
         default: "disponible",
         },
     },
@@ -58,6 +58,6 @@ laboratorioSchema.virtual("equiposFijos", {
   select: "nombre -_id", // Solo selecciona el nombre del equipo, sin el _id
 });
 
-const Laboratorio = mongoose.model("Laboratorio", laboratorioSchema);
+const Laboratorio = mongoose.models.Laboratorio || mongoose.model("Laboratorio", laboratorioSchema);
 
-module.exports = Laboratorio;
+export default Laboratorio;

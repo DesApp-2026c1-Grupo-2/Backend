@@ -15,11 +15,15 @@ import {
   createUsuario,
   updateUsuario,
   deleteUsuario,
-  login
+  login,
+  verify
 } from '../controllers/usuario.controller.js';
 
 // Ruta para iniciar sesión (Login)
 router.post('/login', validateSchema(loginUsuarioSchema), login);
+
+// Ruta para verificar token
+router.get('/verify', validarJWT, verify);
 
 // Rutas CRUD para Usuarios
 router.get('/', validarJWT, getUsuarios);

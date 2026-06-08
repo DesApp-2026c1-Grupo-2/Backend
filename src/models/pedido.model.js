@@ -37,6 +37,7 @@ const comentarioSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   _id: true
+});
 const tareaSchema = new mongoose.Schema({
   descripcion: {
     type: String,

@@ -22,6 +22,21 @@ const recursoSchema = new mongoose.Schema({
   }]
 });
 
+const comentarioSchema = new mongoose.Schema({
+  usuario: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Usuario",
+    required: true,
+  },
+  mensaje: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 1000,
+  }
+}, {
+  timestamps: true,
+  _id: true
 const tareaSchema = new mongoose.Schema({
   descripcion: {
     type: String,
@@ -81,6 +96,8 @@ const pedidoSchema = new mongoose.Schema({
     default: true,
     index: true,
   },
+  comentarios: [comentarioSchema],
+}, { 
 },
 {
   timestamps: true,

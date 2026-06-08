@@ -490,6 +490,35 @@ const agregarComentario = async (req, res) => {
   }
 };
 
+const marcarComentariosVistos = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.usuario.id;
+
+  const pedido = await Pedido.findById(id);
+
+  if (!pedido) {
+    return res.status(404).json({ error: "Pedido no encontrado" });
+  }
+
+  const ahora = new Date();
+
+  const idx = pedido.vistoPor.findIndex(
+    v => v.usuario.toString() === userId
+  );
+
+  if (idx >= 0) {
+    pedido.vistoPor[idx].ultimoComentarioVisto = ahora;
+  } else {
+    pedido.vistoPor.push({
+      usuario: userId,
+      ultimoComentarioVisto: ahora
+    });
+  }
+
+  await pedido.save();
+
+  res.json({ ok: true });
+};
 
 export {
   getPedidos,
@@ -501,4 +530,5 @@ export {
   finalizarPedido,
   borrarPedidoLogico,
   agregarComentario,
+  marcarComentariosVistos,
 };

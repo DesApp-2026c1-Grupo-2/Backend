@@ -27,4 +27,7 @@ router.delete("/:id", validarJWT, validarRol("ADMIN"), pedidoControllers.borrarP
 // POST: Agregar un comentario a un pedido
 router.post("/:id/comentarios", validarJWT, pedidoControllers.agregarComentario);
 
+// PATCH: Marcar comentarios como vistos por un usuario
+router.patch("/:id/comentarios/vistos", validarJWT, pedidoControllers.marcarComentariosVistos);
+
 export default router;

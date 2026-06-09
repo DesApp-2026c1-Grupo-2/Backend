@@ -9,12 +9,10 @@ import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
 
 const getPedidos = async (req, res) => {
   try {
-
     const { id, rol } = req.usuario;
 
     let filtro = { activo: { $ne: false } };
 
-    // DOCENTE → solo sus pedidos
     if (rol === "DOCENTE") {
       filtro.docente = id;
     }
@@ -26,15 +24,35 @@ const getPedidos = async (req, res) => {
         path: "recursos.recursoId",
         select: "nombre tipo codigo esFijo estado",
       })
+      .populate({
+        path: "comentarios.usuario",
+        select: "nombre apellido rol",
+      })
       .sort({ fechaHora: -1 });
 
-    res.json(pedidos);
+    const pedidosConNotificacion = pedidos.map((p) => {
+      const ultimoComentario = p.comentarios?.[p.comentarios.length - 1];
 
-  } catch (error) {
+      const visto = p.vistoPor?.find(
+        (v) => v.usuario?.toString() === id
+      );
 
-    res.status(500).json({
-      error: error.message
+      const ultimoVisto = visto?.ultimoComentarioVisto;
+
+      const hayNoVistos =
+        ultimoComentario &&
+        (!ultimoVisto ||
+          new Date(ultimoComentario.createdAt) > new Date(ultimoVisto));
+
+      return {
+        ...p.toObject(),
+        tieneComentariosNuevos: hayNoVistos,
+      };
     });
+
+    res.json(pedidosConNotificacion);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };
 

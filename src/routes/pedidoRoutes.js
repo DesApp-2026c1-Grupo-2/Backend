@@ -28,6 +28,6 @@ router.delete("/:id", validarJWT, validarRol("ADMIN"), pedidoControllers.borrarP
 router.post("/:id/comentarios", validarJWT, pedidoControllers.agregarComentario);
 
 // PATCH: Marcar comentarios como vistos por un usuario
-router.patch("/:id/comentarios/vistos", validarJWT, pedidoControllers.marcarComentariosVistos);
+router.patch("/:id/comentarios/visto", validarJWT, pedidoControllers.marcarComentariosVistos);
 
 export default router;

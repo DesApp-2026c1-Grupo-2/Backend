@@ -8,6 +8,7 @@ vi.mock('../../../models/item.model.js');
 vi.mock('../../../models/laboratorio.model.js');
 vi.mock('../../../models/equipo.model.js');
 vi.mock('../../../services/pedidoConflictos.js');
+vi.mock('../../../services/pedidoValidaciones.js');
 
 import Pedido from '../../../models/pedido.model.js';
 import Reserva from '../../../models/reserva.model.js';
@@ -16,10 +17,12 @@ import Item from '../../../models/item.model.js';
 import Laboratorio from '../../../models/laboratorio.model.js';
 import Equipo from '../../../models/equipo.model.js';
 import { verificarConflictos } from '../../../services/pedidoConflictos.js';
+import { validarAnticipacionPedido } from '../../../services/pedidoValidaciones.js';
 import {
   getPedidos,
   getPedidoById,
   createPedido,
+  updatePedido,
   updateEstado,
   aprobarPedido,
   finalizarPedido,
@@ -86,6 +89,7 @@ describe('pedidoControllers', () => {
     Equipo.findById = vi.fn().mockReturnValue(createQueryMock(null));
 
     verificarConflictos.mockResolvedValue([]);
+    validarAnticipacionPedido.mockReturnValue(true);
   });
 
   describe('getPedidos', () => {
@@ -182,6 +186,43 @@ describe('pedidoControllers', () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: 'fechaHora es obligatorio' });
+    });
+
+    it('debe retornar 400 si la validación de anticipación falla', async () => {
+      // Forzamos que la validación sea rechazada
+      validarAnticipacionPedido.mockReturnValue(false);
+      const req = mockReq({
+        body: {
+          fechaHora: '2026-06-10T12:00:00Z',
+          materia: 'Física',
+          duracionClase: 120,
+          recursos: [{ recursoId: '1', tipoRecurso: 'Item', cantidad: 1 }]
+        }
+      });
+      const res = mockRes();
+
+      await createPedido(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: 'No se pueden crear pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas' });
+    });
+  });
+
+  describe('updatePedido', () => {
+    it('debe retornar 400 si la nueva fecha en la actualización no cumple con la anticipación mínima', async () => {
+      validarAnticipacionPedido.mockReturnValue(false);
+      const req = mockReq({
+        params: { id: 'p_1' },
+        body: { fechaHora: '2026-06-10T12:00:00Z' }
+      });
+      const res = mockRes();
+      const mockPedido = { _id: 'p_1', fechaHora: new Date() };
+      Pedido.findById.mockResolvedValue(mockPedido);
+
+      await updatePedido(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: 'No se pueden actualizar pedidos a menos de 2 horas de anticipación el mismo día o a fechas pasadas' });
     });
   });
 

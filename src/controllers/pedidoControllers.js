@@ -5,6 +5,7 @@ import Item from "../models/item.model.js";
 import { verificarConflictos } from "../services/pedidoConflictos.js";
 import Reserva from "../models/reserva.model.js";
 import { calcularVentana } from "../services/fechasReserva.js";
+import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
 
 const getPedidos = async (req, res) => {
   try {
@@ -299,6 +300,12 @@ const createPedido = async (req, res) => {
       return res.status(400).json({ error: "fechaHora es obligatorio" });
     }
 
+    if (!validarAnticipacionPedido(fechaHora)) {
+      return res.status(400).json({
+        error: "No se pueden crear pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas"
+      });
+    }
+
     if (!resto.duracionClase) {
       return res.status(400).json({ error: "duracionClase es obligatorio" });
     }
@@ -351,6 +358,13 @@ const updatePedido = async (req, res) => {
     }
 
     const fechaBase = actualizacion.fechaHora || pedidoExistente.fechaHora;
+
+    if (fechaBase && !validarAnticipacionPedido(new Date(fechaBase))) {
+      return res.status(400).json({
+        error: "No se pueden actualizar pedidos a menos de 2 horas de anticipación el mismo día o a fechas pasadas"
+      });
+    }
+
     const duracionBase = actualizacion.duracionClase || pedidoExistente.duracionClase;
 
     if (fechaBase && duracionBase) {

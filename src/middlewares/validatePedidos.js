@@ -178,6 +178,14 @@ const validarPedido = async (req, res, next) => {
   try {
     const data = req.body;
     const detalleProblemas = [];
+
+    // Validación de seguridad: un docente solo puede crear pedidos a su propio nombre
+    if (req.usuario && req.usuario.rol === "DOCENTE") {
+      if (data.docente && data.docente.toString() !== req.usuario.id.toString()) {
+        throw new Error("No estás autorizado para crear pedidos a nombre de otro docente.");
+      }
+    }
+
     const fechaHora = construirFechaHora(data);
 
     validarFechaHora(fechaHora);

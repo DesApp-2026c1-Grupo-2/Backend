@@ -2,7 +2,7 @@ import express from "express";
 const router = express.Router();
 import * as pedidoControllers from "../controllers/pedidoControllers.js";
 
-import validarPedido from "../middlewares/validatePedidos.js";
+import { validarPedido, puedeEditarPedido } from "../middlewares/validatePedidos.js";
 import { validarJWT, validarRol } from "../middlewares/validateJWT.js";
 
 // GET: Obtener todos los pedidos o uno por ID
@@ -12,8 +12,8 @@ router.get("/:id", validarJWT, pedidoControllers.getPedidoById);
 // POST / PUT: Crear y actualizar pedidos (Pasan por el middleware de validación real)
 // TODOS PUEDEN CREAR
 router.post("/", validarJWT, validarPedido, pedidoControllers.createPedido);
-// SOLO PERSONAL Y ADMIN PUEDEN ACTUALIZAR
-router.put("/:id", validarJWT, validarRol("PERSONAL","ADMIN"), validarPedido, pedidoControllers.updatePedido);
+// ??????????????????????????????????????????
+router.put("/:id", validarJWT, puedeEditarPedido, validarPedido, pedidoControllers.updatePedido);
 
 // PATCH: Modificaciones de estado y procesos de negocio
 // SOLO PERSONAL Y ADMIN PUEDEN CAMBIAR ESTADO, APROBAR O FINALIZAR

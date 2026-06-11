@@ -178,7 +178,7 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
   return detalles;
 };
 
-const validarPedido = async (req, res, next) => {
+export const validarPedido = async (req, res, next) => {
   try {
     const data = req.body;
     const detalleProblemas = [];
@@ -268,5 +268,3 @@ export const puedeEditarPedido = async (req, res, next) => {
     });
   }
 };
-
-export default validarPedido;

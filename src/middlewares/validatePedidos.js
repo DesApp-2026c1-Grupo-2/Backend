@@ -224,4 +224,48 @@ const validarPedido = async (req, res, next) => {
   }
 };
 
+
+export const puedeEditarPedido = async (req, res, next) => {
+  const { rol, id: usuarioId } = req.usuario;
+  const { id: pedidoId } = req.params;
+
+  if (rol === "ADMIN" || rol === "PERSONAL") {
+    return next();
+  }
+
+  if (rol !== "DOCENTE") {
+    return res.status(403).json({
+      error: "No autorizado"
+    });
+  }
+
+  const pedido = await Pedido.findById(pedidoId);
+
+  if (!pedido) {
+    return res.status(404).json({
+      error: "Pedido no encontrado"
+    });
+  }
+
+  const esDueno =
+    pedido.docente.toString() === usuarioId;
+
+  if (!esDueno) {
+    return res.status(403).json({
+      error: "Solo podés editar tus propios pedidos"
+    });
+  }
+
+  if (
+    pedido.estado !== "Pendiente" &&
+    pedido.estado !== "En Revisión"
+  ) {
+    return res.status(403).json({
+      error: "Solo se pueden editar pedidos pendientes"
+    });
+  }
+
+  next();
+};
+
 export default validarPedido;

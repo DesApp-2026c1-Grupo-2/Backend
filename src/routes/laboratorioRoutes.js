@@ -8,7 +8,8 @@ import {
     obtenerLaboratoriosPorEdificio,
     actualizarEstadoLaboratorio,
     actualizarLaboratorio,
-    eliminarLaboratorioLogico
+    eliminarLaboratorioLogico,
+    obtenerLaboratoriosDisponiblesPorHorario
 } from '../controllers/laboratorioControllers.js';
 
 
@@ -18,7 +19,7 @@ router.post('/', crearLaboratorio);
 // R: Obtener todos los laboratorios disponibles
 router.get('/disponibles', obtenerLaboratoriosDisponibles);
 router.get('/disponibles-labs', obtenerLaboratoriosDisponibles);
-
+router.get('/disponibles-horario', obtenerLaboratoriosDisponiblesPorHorario);
 // R: Obtener todos los laboratorios 
 router.get('/', obtenerLaboratorios);
 

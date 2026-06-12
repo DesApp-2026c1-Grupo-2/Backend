@@ -11,11 +11,18 @@ const verificarConflictos = async (pedido) => {
   // LABORATORIO
   // =========================
 
-  const laboratorio = await Laboratorio.findById(
-    pedido.laboratorio
-  );
+  let laboratorio = null;
 
-  if (!laboratorio) {
+  if (!pedido.laboratorio) {
+    conflictos.push({
+      tipo: "laboratorio_no_asignado",
+      severidad: "media",
+      mensaje: "El pedido no tiene un laboratorio asignado. Debe asignarse uno antes de aprobar.",
+    });
+  } else {
+    laboratorio = await Laboratorio.findById(pedido.laboratorio);
+
+    if (!laboratorio) {
     conflictos.push({
       tipo: "laboratorio_no_existente",
       severidad: "alta",
@@ -62,6 +69,7 @@ const verificarConflictos = async (pedido) => {
           "Ya existe un pedido para ese laboratorio en el horario solicitado.",
       });
     }
+  }
   }
 
   // =========================

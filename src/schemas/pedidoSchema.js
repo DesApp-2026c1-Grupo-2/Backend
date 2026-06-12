@@ -41,9 +41,14 @@ const pedidoSchemaJoi = Joi.object({
     hora: Joi.string().optional().messages({
         "string.empty": "La hora es obligatoria",
     }),
-    laboratorio: Joi.string().hex().length(24).required().messages({
+    laboratorio: Joi.alternatives()
+    .try(
+        Joi.string().hex().length(24),
+        Joi.valid(null, "")
+    )
+    .optional()
+    .messages({
         "string.length": "El ID del laboratorio debe ser válido (24 caracteres)",
-        "string.empty": "El laboratorio es obligatorio",
     }),
     alumnos: Joi.number().min(1).required().messages({
         "number.base": "La cantidad de alumnos debe ser un número",

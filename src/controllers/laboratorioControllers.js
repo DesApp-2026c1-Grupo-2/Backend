@@ -1,4 +1,5 @@
 import Laboratorio from '../models/laboratorio.model.js';
+import Pedido from "../models/pedido.model.js";
 
 // C: Crear un nuevo laboratorio
 const crearLaboratorio = async (req, res) => {
@@ -127,6 +128,68 @@ const eliminarLaboratorioLogico = async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 };
+const obtenerLaboratoriosDisponiblesPorHorario = async (
+  req,
+  res
+) => {
+  try {
+
+    const {
+      fechaHora,
+      alumnos
+    } = req.query;
+
+    if (!fechaHora) {
+      return res.status(400).json({
+        message:
+          "Debe indicar fechaHora"
+      });
+    }
+
+    const pedidos =
+      await Pedido.find({
+        fechaHora: new Date(fechaHora),
+        estado: {
+          $ne: "Rechazado"
+        },
+        activo: {
+          $ne: false
+        }
+      }).select("laboratorio");
+
+    const laboratoriosOcupados =
+      pedidos
+        .map(p => p.laboratorio)
+        .filter(Boolean);
+
+    const filtro = {
+      estado: "disponible",
+      _id: {
+        $nin: laboratoriosOcupados
+      }
+    };
+
+    if (alumnos) {
+      filtro.capacidad = {
+        $gte: Number(alumnos)
+      };
+    }
+
+    const laboratorios =
+      await Laboratorio.find(
+        filtro
+      );
+
+    res.json(laboratorios);
+
+  } catch (error) {
+
+    res.status(500).json({
+      message: error.message
+    });
+
+  }
+};
 export {
     crearLaboratorio,
     obtenerLaboratorios,
@@ -135,5 +198,5 @@ export {
     obtenerLaboratoriosPorEdificio,
     actualizarEstadoLaboratorio,
     actualizarLaboratorio,
-    eliminarLaboratorioLogico
-};
+    eliminarLaboratorioLogico,
+    obtenerLaboratoriosDisponiblesPorHorario};

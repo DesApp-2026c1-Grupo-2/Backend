@@ -241,6 +241,12 @@ const finalizarPedido = async (req, res) => {
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
+    if (!pedido.laboratorio) {
+  return res.status(400).json({
+    error:
+      "Debe asignarse un laboratorio antes de aprobar el pedido."
+  });
+}
 
     if (pedido.estado !== "Aceptado") {
       return res.status(400).json({ error: "El pedido debe estar en estado 'Aceptado' para poder finalizarse." });
@@ -289,6 +295,7 @@ const finalizarPedido = async (req, res) => {
 
 const createPedido = async (req, res) => {
   try {
+    console.log("BODY RECIBIDO:", JSON.stringify(req.body, null, 2));
     const { fecha, hora, ...resto } = req.body;
     
     // Combinar fecha y hora en un objeto Date
@@ -300,13 +307,30 @@ const createPedido = async (req, res) => {
     } else {
       return res.status(400).json({ error: "fechaHora es obligatorio" });
     }
+    console.log(
+  "required laboratorio:",
+  Pedido.schema.path("laboratorio").isRequired
+);
 
-    const pedido = new Pedido({
-      ...resto,
-      fechaHora,
-      detalleProblemas: req.detalleProblemas || [],
-      estado: req.estadoCalculado || "Pendiente",
-    });
+console.log(
+  "schema laboratorio:",
+  Pedido.schema.path("laboratorio").options
+);
+
+if (
+  resto.laboratorio === "" ||
+  resto.laboratorio === undefined
+) {
+  resto.laboratorio = null;
+}
+
+const pedido = new Pedido({
+  ...resto,
+  laboratorio: resto.laboratorio,
+  fechaHora,
+  detalleProblemas: req.detalleProblemas || [],
+  estado: req.estadoCalculado || "Pendiente",
+});
 
     const nuevo = await pedido.save();
 
@@ -319,6 +343,7 @@ const createPedido = async (req, res) => {
 
     res.status(201).json(nuevo);
   } catch (error) {
+    console.error("ERROR createPedido:", error);
     res.status(400).json({ error: error.message });
   }
 };
@@ -355,6 +380,8 @@ const updatePedido = async (req, res) => {
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
+  console.log("BODY COMPLETO:", req.body);
+  console.log("LABORATORIO:", req.body.laboratorio);
 };
 const updateEstado = async (req, res) => {
   try {

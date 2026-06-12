@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import { Schema } from "mongoose";
+import Joi from "joi";
 
 const recursoSchema = new mongoose.Schema({
   recursoId: {
@@ -72,8 +74,9 @@ const pedidoSchema = new mongoose.Schema({
   laboratorio: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Laboratorio",
-    required: true,
-  },
+    required: false,
+    default: null,
+},
   alumnos: {
     type: Number,
     required: true,
@@ -112,6 +115,7 @@ const pedidoSchema = new mongoose.Schema({
   },
 }
 );
+
 
 // Índices para optimizar queries frecuentes
 pedidoSchema.index({ docente: 1, estado: 1 });

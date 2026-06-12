@@ -21,7 +21,16 @@ const validarFechaHora = (fechaHora) => {
   }
 };
 
-const validarConflictoLaboratorio = async (data, fechaHora, pedidoId) => {
+const validarConflictoLaboratorio = async (
+  data,
+  fechaHora,
+  pedidoId
+) => {
+
+  if (!data.laboratorio) {
+    return null;
+  }
+
   const filtroConflicto = {
     laboratorio: data.laboratorio,
     fechaHora,
@@ -33,21 +42,35 @@ const validarConflictoLaboratorio = async (data, fechaHora, pedidoId) => {
     filtroConflicto._id = { $ne: pedidoId };
   }
 
-  const existe = await Pedido.findOne(filtroConflicto);
+  const existe =
+    await Pedido.findOne(filtroConflicto);
+
   if (existe) {
     return "El laboratorio ya está ocupado en ese horario";
   }
+
   return null;
 };
-
 const validarLaboratorioCapacidad = async (data) => {
-  const laboratorio = await Laboratorio.findById(data.laboratorio);
+
+  // Permite pedidos sin laboratorio asignado
+  if (!data.laboratorio) {
+    return null;
+  }
+
+  const laboratorio =
+    await Laboratorio.findById(
+      data.laboratorio
+    );
 
   if (!laboratorio) {
     return "El laboratorio solicitado no existe en la base de datos.";
   }
 
-  if (typeof data.alumnos === "number" && data.alumnos > laboratorio.capacidad) {
+  if (
+    typeof data.alumnos === "number" &&
+    data.alumnos > laboratorio.capacidad
+  ) {
     return `El laboratorio no tiene capacidad suficiente (Máximo: ${laboratorio.capacidad} alumnos).`;
   }
 
@@ -168,6 +191,7 @@ const validarRecursos = async (data, fechaHora) => {
 };
 
 const validarPedido = async (req, res, next) => {
+  console.log(">>> ENTRO A validarPedido", JSON.stringify(req.body));
   try {
     const data = req.body;
     const detalleProblemas = [];
@@ -176,11 +200,26 @@ const validarPedido = async (req, res, next) => {
     validarFechaHora(fechaHora);
     req.body.fechaHora = fechaHora;
 
-    const conflicto = await validarConflictoLaboratorio(data, fechaHora, req.params.id);
-    if (conflicto) detalleProblemas.push(conflicto);
+    if (data.laboratorio) {
 
-    const problemaLaboratorio = await validarLaboratorioCapacidad(data);
-    if (problemaLaboratorio) detalleProblemas.push(problemaLaboratorio);
+      const conflicto = await validarConflictoLaboratorio(
+        data,
+        fechaHora,
+        req.params.id
+  );
+
+    if (conflicto) {
+    detalleProblemas.push(conflicto);
+  }
+
+  const problemaLaboratorio =
+    await validarLaboratorioCapacidad(data);
+
+  if (problemaLaboratorio) {
+    detalleProblemas.push(problemaLaboratorio);
+  }
+
+}
 
     const recursosProblemas = await validarRecursos(data, fechaHora);
     detalleProblemas.push(...recursosProblemas);

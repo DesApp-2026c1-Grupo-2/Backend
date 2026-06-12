@@ -21,10 +21,14 @@ const validarFechaHora = (fechaHora) => {
   }
 };
 
-const validarConflictoLaboratorio = async (data, fechaHora, pedidoId) => {
+const validarConflictoLaboratorio = async (data, fechaHora, pedidoId, duracionClase) => {
+  const inicioReal = new Date(fechaHora.getTime() - 60 * 60 * 1000);
+  const finReal = new Date(fechaHora.getTime() + (duracionClase + 30) * 60 * 1000);
+
   const filtroConflicto = {
     laboratorio: data.laboratorio,
-    fechaHora,
+    fechaInicioReal: { $lt: finReal },
+    fechaFinReal: { $gt: inicioReal },
     estado: { $ne: "Rechazado" },
     activo: { $ne: false },
   };
@@ -35,7 +39,7 @@ const validarConflictoLaboratorio = async (data, fechaHora, pedidoId) => {
 
   const existe = await Pedido.findOne(filtroConflicto);
   if (existe) {
-    return "El laboratorio ya está ocupado en ese horario";
+    return "El laboratorio ya está ocupado en ese horario por una reserva con superposición.";
   }
   return null;
 };
@@ -78,8 +82,10 @@ const validarRecursoItem = async (recurso) => {
   return null;
 };
 
-const validarRecursos = async (data, fechaHora) => {
+const validarRecursos = async (data, fechaHora, duracionClase) => {
   const detalles = [];
+  const inicioReal = new Date(fechaHora.getTime() - 60 * 60 * 1000);
+  const finReal = new Date(fechaHora.getTime() + (duracionClase + 30) * 60 * 1000);
 
   if (!Array.isArray(data.recursos) || data.recursos.length === 0) {
     detalles.push("El pedido debe contener al menos un recurso.");
@@ -111,14 +117,15 @@ const validarRecursos = async (data, fechaHora) => {
       }
 
       const reservaOcupando = await Reserva.findOne({
-        fechaHora,
-        estado: { $in: ["Pendiente", "En Curso"] },
         "equiposReservados.equipoId": recurso.recursoId,
+        estado: { $in: ["Pendiente", "En Curso"] },
+        fechaInicioReal: { $lt: finReal },
+        fechaFinReal: { $gt: inicioReal },
       });
 
       if (reservaOcupando) {
         detalles.push(
-          `El equipo '${equipo.nombre}' ya está reservado en ese horario.`
+          `El equipo '${equipo.nombre}' ya está reservado y en uso durante ese período.`
         );
       }
 
@@ -171,18 +178,32 @@ const validarPedido = async (req, res, next) => {
   try {
     const data = req.body;
     const detalleProblemas = [];
+
+    // Validación de seguridad: un docente solo puede crear pedidos a su propio nombre
+    if (req.usuario && req.usuario.rol === "DOCENTE") {
+      if (data.docente && data.docente.toString() !== req.usuario.id.toString()) {
+        throw new Error("No estás autorizado para crear pedidos a nombre de otro docente.");
+      }
+    }
+
     const fechaHora = construirFechaHora(data);
 
     validarFechaHora(fechaHora);
     req.body.fechaHora = fechaHora;
 
-    const conflicto = await validarConflictoLaboratorio(data, fechaHora, req.params.id);
+    if (!data.duracionClase || isNaN(Number(data.duracionClase))) {
+      throw new Error("El campo 'duracionClase' es obligatorio y debe ser un número en minutos.");
+    }
+    const duracionClaseNum = Number(data.duracionClase);
+    req.body.duracionClase = duracionClaseNum;
+
+    const conflicto = await validarConflictoLaboratorio(data, fechaHora, req.params.id, duracionClaseNum);
     if (conflicto) detalleProblemas.push(conflicto);
 
     const problemaLaboratorio = await validarLaboratorioCapacidad(data);
     if (problemaLaboratorio) detalleProblemas.push(problemaLaboratorio);
 
-    const recursosProblemas = await validarRecursos(data, fechaHora);
+    const recursosProblemas = await validarRecursos(data, fechaHora, duracionClaseNum);
     detalleProblemas.push(...recursosProblemas);
 
     req.detalleProblemas = detalleProblemas;

@@ -49,7 +49,11 @@ const getPedidoById = async (req, res) => {
       .populate({
         path: "recursos.recursoId",
         select: "nombre tipo codigo esFijo estado",
-      });
+      })
+      .populate({
+        path: "comentarios.usuario",
+        select: "nombre apellido rol"
+      });      
 
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
@@ -444,6 +448,49 @@ const borrarPedidoLogico = async (req, res) => {
   }
 };
 
+
+const agregarComentario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { mensaje } = req.body;
+
+    const pedido = await Pedido.findById(id);
+
+    if (!pedido) {
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
+    }
+
+    pedido.comentarios.push({
+      usuario: req.usuario.id,
+      mensaje
+    });
+
+    await pedido.save();
+
+    // Volvemos a buscar el pedido ya guardado
+    const pedidoActualizado = await Pedido.findById(id)
+      .populate({
+        path: "comentarios.usuario",
+        select: "nombre apellido rol"
+      });
+
+    const comentarioNuevo =
+      pedidoActualizado.comentarios[
+        pedidoActualizado.comentarios.length - 1
+      ];
+
+    res.status(201).json(comentarioNuevo);
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+};
+
+
 export {
   getPedidos,
   getPedidoById,
@@ -453,4 +500,5 @@ export {
   aprobarPedido,
   finalizarPedido,
   borrarPedidoLogico,
+  agregarComentario,
 };

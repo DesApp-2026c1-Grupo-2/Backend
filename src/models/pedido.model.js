@@ -82,7 +82,8 @@ const pedidoSchema = new mongoose.Schema({
   laboratorio: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Laboratorio",
-    required: true,
+    required: false,
+    default: null,
   },
   alumnos: {
     type: Number,

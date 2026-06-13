@@ -57,6 +57,21 @@ const pedidoSchemaJoi = Joi.object({
         "string.length": "El ID del laboratorio debe ser válido (24 caracteres)",
         "string.empty": "El laboratorio es obligatorio",
     }),
+    fechaInicioReal: Joi.any().forbidden().messages({
+        "any.unknown": "No se permite enviar fechaInicioReal, este valor se calcula automáticamente",
+    }),
+    fechaFinReal: Joi.any().forbidden().messages({
+        "any.unknown": "No se permite enviar fechaFinReal, este valor se calcula automáticamente",
+    }),
+    laboratorio: Joi.alternatives()
+        .try(
+            Joi.string().hex().length(24),
+            Joi.valid(null, "")
+        )
+        .optional()
+        .messages({
+            "string.length": "El ID del laboratorio debe ser válido (24 caracteres)",
+        }),
     alumnos: Joi.number().min(1).required().messages({
         "number.base": "La cantidad de alumnos debe ser un número",
         "number.min": "Debe haber al menos 1 alumno",

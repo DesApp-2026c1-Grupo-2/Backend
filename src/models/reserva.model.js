@@ -30,12 +30,11 @@ const reservaSchema = new mongoose.Schema({
   }]
 }, { timestamps: true });
 
-reservaSchema.pre('save', function(next) {
+reservaSchema.pre('save', function() {
   if (this.fechaHora && typeof this.duracionClase === 'number') {
     this.fechaInicioReal = new Date(this.fechaHora.getTime() - 60 * 60 * 1000);
     this.fechaFinReal = new Date(this.fechaHora.getTime() + (this.duracionClase + 30) * 60 * 1000);
   }
-  next();
 });
 
 export default mongoose.models.Reserva || mongoose.model('Reserva', reservaSchema);

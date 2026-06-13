@@ -22,6 +22,8 @@ const validarFechaHora = (fechaHora) => {
 };
 
 const validarConflictoLaboratorio = async (data, fechaHora, pedidoId, duracionClase) => {
+  if (!data.laboratorio) return null;
+
   const inicioReal = new Date(fechaHora.getTime() - 60 * 60 * 1000);
   const finReal = new Date(fechaHora.getTime() + (duracionClase + 30) * 60 * 1000);
 
@@ -45,6 +47,8 @@ const validarConflictoLaboratorio = async (data, fechaHora, pedidoId, duracionCl
 };
 
 const validarLaboratorioCapacidad = async (data) => {
+  if (!data.laboratorio) return null;
+
   const laboratorio = await Laboratorio.findById(data.laboratorio);
 
   if (!laboratorio) {
@@ -196,6 +200,11 @@ const validarPedido = async (req, res, next) => {
     }
     const duracionClaseNum = Number(data.duracionClase);
     req.body.duracionClase = duracionClaseNum;
+
+    if (!data.laboratorio) {
+      data.laboratorio = null;
+      req.body.laboratorio = null;
+    }
 
     const conflicto = await validarConflictoLaboratorio(data, fechaHora, req.params.id, duracionClaseNum);
     if (conflicto) detalleProblemas.push(conflicto);

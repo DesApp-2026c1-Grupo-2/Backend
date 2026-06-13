@@ -109,6 +109,15 @@ const pedidoSchema = new mongoose.Schema({
     index: true,
   },
   comentarios: [comentarioSchema],
+  vistoPor: [{
+    usuario: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Usuario"
+    },
+    ultimoComentarioVisto: {
+      type: Date
+    }
+  }],
 }, { 
 },
 {

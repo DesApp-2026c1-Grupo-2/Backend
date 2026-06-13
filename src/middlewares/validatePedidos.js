@@ -178,7 +178,7 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
   return detalles;
 };
 
-const validarPedido = async (req, res, next) => {
+export const validarPedido = async (req, res, next) => {
   try {
     const data = req.body;
     const detalleProblemas = [];
@@ -224,4 +224,47 @@ const validarPedido = async (req, res, next) => {
   }
 };
 
-export default validarPedido;
+
+export const puedeEditarPedido = async (req, res, next) => {
+  try {
+    const { rol, id: usuarioId } = req.usuario;
+    const { id: pedidoId } = req.params;
+
+    const pedido = await Pedido.findById(pedidoId);
+
+    if (!pedido) {
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
+    }
+
+    // Solo pedidos pendientes
+    if (pedido.estado !== "Pendiente") {
+      return res.status(403).json({
+        error: "Solo se pueden editar pedidos pendientes"
+      });
+    }
+
+    // Admin y personal pueden editar cualquiera
+    if (rol === "ADMIN" || rol === "PERSONAL") {
+      return next();
+    }
+
+    // Docente solo sus propios pedidos
+    if (
+      rol === "DOCENTE" &&
+      pedido.docente.toString() === usuarioId
+    ) {
+      return next();
+    }
+
+    return res.status(403).json({
+      error: "No autorizado"
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      error: error.message
+    });
+  }
+};

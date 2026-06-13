@@ -4,6 +4,8 @@ import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
 import { verificarConflictos } from "../services/pedidoConflictos.js";
 import Reserva from "../models/reserva.model.js";
+import { calcularVentana } from "../services/fechasReserva.js";
+import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
 
 const getPedidos = async (req, res) => {
   try {
@@ -41,7 +43,7 @@ const getPedidoById = async (req, res) => {
     const { id: userId, rol } = req.usuario;
     const { id } = req.params;
 
-    const pedido = await Pedido.findOne({ _id: id, activo: { $ne: false } })
+    const pedido = await Pedido.findById(id)
       .populate("docente", "nombre apellido email")
       .populate("laboratorio", "nombre tipo")
       .populate({
@@ -80,12 +82,12 @@ const aprobarPedido = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const pedido = await Pedido.findOne({ _id: id, activo: { $ne: false } });
+    const pedido = await Pedido.findById(id);
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
 
-    if (pedido.estado === "Aceptado") {
+    if (pedido.estado !== "Pendiente") {
       return res.status(400).json({ error: "El pedido ya fue aceptado previamente y sus recursos ya fueron descontados." });
     }
 
@@ -215,6 +217,7 @@ const aprobarPedido = async (req, res) => {
       laboratorioId: pedidoAprobado.laboratorio,
       docenteId: pedidoAprobado.docente,
       fechaHora: pedidoAprobado.fechaHora,
+      duracionClase: pedidoAprobado.duracionClase,
       equiposReservados,
       materialesReservados
     });
@@ -237,16 +240,10 @@ const finalizarPedido = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const pedido = await Pedido.findOne({ _id: id, activo: { $ne: false } });
+    const pedido = await Pedido.findById(id);
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
-    if (!pedido.laboratorio) {
-  return res.status(400).json({
-    error:
-      "Debe asignarse un laboratorio antes de aprobar el pedido."
-  });
-}
 
     if (pedido.estado !== "Aceptado") {
       return res.status(400).json({ error: "El pedido debe estar en estado 'Aceptado' para poder finalizarse." });
@@ -295,42 +292,42 @@ const finalizarPedido = async (req, res) => {
 
 const createPedido = async (req, res) => {
   try {
-    console.log("BODY RECIBIDO:", JSON.stringify(req.body, null, 2));
-    const { fecha, hora, ...resto } = req.body;
+    const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
     
     // Combinar fecha y hora en un objeto Date
     let fechaHora;
     if (fecha && hora) {
       fechaHora = new Date(`${fecha}T${hora}`);
     } else if (req.body.fechaHora) {
-      fechaHora = req.body.fechaHora;
+      fechaHora = new Date(req.body.fechaHora);
     } else {
       return res.status(400).json({ error: "fechaHora es obligatorio" });
     }
-    console.log(
-  "required laboratorio:",
-  Pedido.schema.path("laboratorio").isRequired
-);
 
-console.log(
-  "schema laboratorio:",
-  Pedido.schema.path("laboratorio").options
-);
+    if (!validarAnticipacionPedido(fechaHora)) {
+      return res.status(400).json({
+        error: "No se pueden crear pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas"
+      });
+    }
 
-if (
-  resto.laboratorio === "" ||
-  resto.laboratorio === undefined
-) {
-  resto.laboratorio = null;
-}
+    if (!resto.duracionClase) {
+      return res.status(400).json({ error: "duracionClase es obligatorio" });
+    }
 
-const pedido = new Pedido({
-  ...resto,
-  laboratorio: resto.laboratorio,
-  fechaHora,
-  detalleProblemas: req.detalleProblemas || [],
-  estado: req.estadoCalculado || "Pendiente",
-});
+    if (!resto.recursos || resto.recursos.length === 0) {
+      return res.status(400).json({ error: "Un pedido debe tener al menos un recurso" });
+    }
+
+    const { inicio, fin } = calcularVentana(fechaHora, resto.duracionClase);
+
+    const pedido = new Pedido({
+      ...resto,
+      fechaHora,
+      fechaInicioReal: inicio,
+      fechaFinReal: fin,
+      detalleProblemas: req.detalleProblemas || [],
+      estado: req.estadoCalculado || "Pendiente",
+    });
 
     const nuevo = await pedido.save();
 
@@ -343,25 +340,45 @@ const pedido = new Pedido({
 
     res.status(201).json(nuevo);
   } catch (error) {
-    console.error("ERROR createPedido:", error);
     res.status(400).json({ error: error.message });
   }
 };
 const updatePedido = async (req, res) => {
   try {
     const { id } = req.params;
-    const { fecha, hora, ...resto } = req.body;
+    const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
     
     // Combinar fecha y hora si vienen separadas
     const actualizacion = { ...resto };
     if (fecha && hora) {
       actualizacion.fechaHora = new Date(`${fecha}T${hora}`);
     } else if (req.body.fechaHora) {
-      actualizacion.fechaHora = req.body.fechaHora;
+      actualizacion.fechaHora = new Date(req.body.fechaHora);
     }
 
-    const pedido = await Pedido.findOneAndUpdate(
-      { _id: id, activo: { $ne: false } },
+    const pedidoExistente = await Pedido.findById(id);
+    if (!pedidoExistente) {
+      return res.status(404).json({ error: "Pedido no encontrado" });
+    }
+
+    const fechaBase = actualizacion.fechaHora || pedidoExistente.fechaHora;
+
+    if (fechaBase && !validarAnticipacionPedido(new Date(fechaBase))) {
+      return res.status(400).json({
+        error: "No se pueden actualizar pedidos a menos de 2 horas de anticipación el mismo día o a fechas pasadas"
+      });
+    }
+
+    const duracionBase = actualizacion.duracionClase || pedidoExistente.duracionClase;
+
+    if (fechaBase && duracionBase) {
+      const { inicio, fin } = calcularVentana(new Date(fechaBase), duracionBase);
+      actualizacion.fechaInicioReal = inicio;
+      actualizacion.fechaFinReal = fin;
+    }
+
+    const pedido = await Pedido.findByIdAndUpdate(
+      id,
       actualizacion,
       { new: true, runValidators: true }
     )
@@ -380,8 +397,6 @@ const updatePedido = async (req, res) => {
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
-  console.log("BODY COMPLETO:", req.body);
-  console.log("LABORATORIO:", req.body.laboratorio);
 };
 const updateEstado = async (req, res) => {
   try {
@@ -392,8 +407,8 @@ const updateEstado = async (req, res) => {
       return res.status(400).json({ error: "Estado no válido" });
     }
 
-    const pedido = await Pedido.findOneAndUpdate(
-      { _id: id, activo: { $ne: false } },
+    const pedido = await Pedido.findByIdAndUpdate(
+      id,
       { estado },
       { new: true, runValidators: true }
     )
@@ -413,22 +428,23 @@ const updateEstado = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
 const borrarPedidoLogico = async (req, res) => {
   try {
     const { id } = req.params;
-    const pedido = await Pedido.findOneAndUpdate(
-      { _id: id, activo: { $ne: false } },
+    const pedido = await Pedido.findByIdAndUpdate(
+      id,
       { activo: false },
       { new: true }
     );
-
+    
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
-
-    res.json({ message: "Pedido marcado como eliminado (borrado lógico)", pedido });
+    
+    res.json({ message: "Pedido eliminado lógicamente", pedido });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
 };
 
@@ -473,6 +489,7 @@ const agregarComentario = async (req, res) => {
     });
   }
 };
+
 
 export {
   getPedidos,

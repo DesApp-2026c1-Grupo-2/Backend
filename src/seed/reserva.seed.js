@@ -59,11 +59,18 @@ export const seedReservas = async () => {
       // Calculamos el estado de la reserva coherente al estado del pedido
       const estadoReserva = pedido.estado === "Finalizado" ? "Finalizada" : "Pendiente";
 
+      const duracionClase = pedido.duracionClase || 120;
+      const fechaInicioReal = new Date(new Date(pedido.fechaHora).getTime() - 60 * 60 * 1000);
+      const fechaFinReal = new Date(new Date(pedido.fechaHora).getTime() + (duracionClase + 30) * 60 * 1000);
+
       reservasPrueba.push({
         pedidoId: pedido._id,
         laboratorioId: pedido.laboratorio,
         docenteId: pedido.docente,
         fechaHora: pedido.fechaHora,
+        duracionClase,
+        fechaInicioReal,
+        fechaFinReal,
         estado: estadoReserva,
         equiposReservados,
         materialesReservados

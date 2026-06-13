@@ -20,6 +20,7 @@ router.post('/', crearLaboratorio);
 router.get('/disponibles', obtenerLaboratoriosDisponibles);
 router.get('/disponibles-labs', obtenerLaboratoriosDisponibles);
 router.get('/disponibles-horario', obtenerLaboratoriosDisponiblesPorHorario);
+
 // R: Obtener todos los laboratorios 
 router.get('/', obtenerLaboratorios);
 

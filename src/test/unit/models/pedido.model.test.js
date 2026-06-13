@@ -9,6 +9,7 @@ describe('Pedido Model Validations', () => {
       materia: 'Química I',
       docente: new mongoose.Types.ObjectId(),
       fechaHora: new Date(),
+      duracionClase: 120, // Campo requerido añadido
       laboratorio: new mongoose.Types.ObjectId(),
       alumnos: 30,
       recursos: [{
@@ -32,6 +33,7 @@ describe('Pedido Model Validations', () => {
     expect(err.errors.laboratorio).toBeDefined();
     expect(err.errors.alumnos).toBeDefined();
     expect(err.errors.fechaHora).toBeDefined();
+    expect(err.errors.duracionClase).toBeDefined(); // Campo requerido añadido
   });
 
   it('debería retornar error si el campo estado contiene un valor fuera de la enumeración permitida', () => {
@@ -39,6 +41,7 @@ describe('Pedido Model Validations', () => {
       materia: 'Biología Avanzada',
       docente: new mongoose.Types.ObjectId(),
       fechaHora: new Date(),
+      duracionClase: 90,
       laboratorio: new mongoose.Types.ObjectId(),
       alumnos: 15,
       estado: 'estado_inexistente' // Solo permite: "Pendiente", "En Revisión", "Aceptado", "Rechazado", "Finalizado"

@@ -130,10 +130,11 @@ pedidoSchema.index({ laboratorio: 1 });
 pedidoSchema.index({ fechaHora: -1 });
 
 // Validación pre-save
-pedidoSchema.pre("save", function() {
+pedidoSchema.pre("save", function(next) {
   if (!this.recursos || this.recursos.length === 0) {
-    throw new Error("Un pedido debe tener al menos un recurso");
+    return next(new Error("Un pedido debe tener al menos un recurso"));
   }
+  next();
 });
 
 export default mongoose.models.Pedido || mongoose.model("Pedido", pedidoSchema);

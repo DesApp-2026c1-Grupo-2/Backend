@@ -53,6 +53,16 @@ const pedidoSchemaJoi = Joi.object({
     fechaFinReal: Joi.any().forbidden().messages({
         "any.unknown": "No se permite enviar fechaFinReal, este valor se calcula automáticamente",
     }),
+    laboratorio: Joi.string().hex().length(24).required().messages({
+        "string.length": "El ID del laboratorio debe ser válido (24 caracteres)",
+        "string.empty": "El laboratorio es obligatorio",
+    }),
+    fechaInicioReal: Joi.any().forbidden().messages({
+        "any.unknown": "No se permite enviar fechaInicioReal, este valor se calcula automáticamente",
+    }),
+    fechaFinReal: Joi.any().forbidden().messages({
+        "any.unknown": "No se permite enviar fechaFinReal, este valor se calcula automáticamente",
+    }),
     laboratorio: Joi.alternatives()
         .try(
             Joi.string().hex().length(24),

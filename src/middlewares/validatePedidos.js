@@ -192,8 +192,12 @@ export const validarPedido = async (req, res, next) => {
 
     const fechaHora = construirFechaHora(data);
 
-    validarFechaHora(fechaHora);
-    req.body.fechaHora = fechaHora;
+    if (!fechaHora || isNaN(fechaHora.getTime())) {
+      return res.status(400).json({
+        error: "fechaHora inválida",
+        debug: data
+      });
+    }
 
     if (!data.duracionClase || isNaN(Number(data.duracionClase))) {
       throw new Error("El campo 'duracionClase' es obligatorio y debe ser un número en minutos.");

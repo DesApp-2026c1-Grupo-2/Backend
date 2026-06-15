@@ -153,14 +153,13 @@ const pedidoSchema = new mongoose.Schema({
     type: [historialSchema],
     default: []
   },  
-}, { 
 },
 {
   timestamps: true,
   strict: true,
   toJSON: {
     transform: (_, ret) => {
-      ret.id = ret._id.toString();
+      ret.id = ret._id.toString(); //porque? mongo es objectId, no string, y si lo necesito como string lo convierto en el controlador, no acá
       delete ret._id;
       delete ret.__v;
     },
@@ -174,11 +173,10 @@ pedidoSchema.index({ laboratorio: 1 });
 pedidoSchema.index({ fechaHora: -1 });
 
 // Validación pre-save
-pedidoSchema.pre("save", function(next) {
+pedidoSchema.pre("save", function() {
   if (!this.recursos || this.recursos.length === 0) {
-    return next(new Error("Un pedido debe tener al menos un recurso"));
+    throw new Error("Un pedido debe tener al menos un recurso");
   }
-  next();
 });
 
 export default mongoose.models.Pedido || mongoose.model("Pedido", pedidoSchema);

@@ -55,6 +55,37 @@ const tareaSchema = new mongoose.Schema({
   }
 });
 
+const historialSchema = new mongoose.Schema({
+  usuario: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Usuario"
+  },
+
+  accion: {
+    type: String,
+    enum: [
+      "CREACION",
+      "MODIFICACION",
+      "CAMBIO_ESTADO",
+      "APROBACION",
+      "RECHAZO",
+      "FINALIZACION",
+      "COMENTARIO",
+      "ELIMINACION"
+    ]
+  },
+
+  descripcion: String,
+
+  cambios: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  }
+
+}, {
+  timestamps: true
+});
+
 const pedidoSchema = new mongoose.Schema({
   materia: {
     type: String,
@@ -118,6 +149,10 @@ const pedidoSchema = new mongoose.Schema({
       type: Date
     }
   }],
+  historial: {
+    type: [historialSchema],
+    default: []
+  },  
 }, { 
 },
 {

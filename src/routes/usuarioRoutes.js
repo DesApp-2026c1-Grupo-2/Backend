@@ -2,7 +2,7 @@ import { Router } from 'express';
 const router = Router();
 
 import { validarJWT } from '../middlewares/validateJWT.js';
-import validateSchema from '../middlewares/validateSchema.js';
+import { validate } from '../middlewares/validator.middleware.js';
 import {
   createUsuarioSchema,
   updateUsuarioSchema,
@@ -20,7 +20,7 @@ import {
 } from '../controllers/usuario.controller.js';
 
 // Ruta para iniciar sesión (Login)
-router.post('/login', validateSchema(loginUsuarioSchema), login);
+router.post('/login', validate(loginUsuarioSchema), login);
 
 // Ruta para verificar token
 router.get('/verify', validarJWT, verify);
@@ -31,9 +31,9 @@ router.get('/', validarJWT, getUsuarios);
 router.get('/:id', validarJWT, getUsuarioById);
 
 // Ruta pública para registro de usuarios
-router.post('/', validateSchema(createUsuarioSchema), createUsuario);
+router.post('/', validate(createUsuarioSchema), createUsuario);
 
-router.put('/:id', validarJWT, validateSchema(updateUsuarioSchema), updateUsuario);
+router.put('/:id', validarJWT, validate(updateUsuarioSchema), updateUsuario);
 
 router.delete('/:id', validarJWT, deleteUsuario);
 

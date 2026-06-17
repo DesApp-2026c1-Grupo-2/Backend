@@ -61,6 +61,12 @@ const updateUsuario = async (req, res) => {
     
     const datosActualizados = { ...req.body };
 
+    // Validar por seguridad que un usuario no escale sus propios privilegios accidentalmente
+    // (Si este endpoint es consumido por administradores, este chequeo debería omitirse
+    // o extraerse basándose en el rol del usuario que realiza la petición req.usuario.rol)
+    delete datosActualizados.rol;
+    delete datosActualizados.activo;
+
     if (datosActualizados.legajo !== undefined && String(datosActualizados.legajo).trim() === '') {
       datosActualizados.$unset = { legajo: 1 };
       delete datosActualizados.legajo;

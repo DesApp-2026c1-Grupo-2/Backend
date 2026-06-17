@@ -11,7 +11,6 @@ export const seedInventario = async () => {
     await ProduccionReactivo.deleteMany({});
     await RecetaReactivo.deleteMany({});
     await Lote.deleteMany({});
-    await Actividad.deleteMany({});
     await Item.deleteMany({});
 
     // 2. Crear Ítems
@@ -33,14 +32,10 @@ export const seedInventario = async () => {
     const sal = items.find(i => i.codigo === 'SUS-002');
     const solucionSalina = items.find(i => i.codigo === 'REA-001');
 
-    // 3. Crear Actividades
-    const actividades = await Actividad.insertMany([
-      { nombre: 'Práctica de Biología Celular', fecha: new Date('2026-06-15T10:00:00Z'), estado: 'planificada' },
-      { nombre: 'Preparación de Soluciones', fecha: new Date('2026-05-10T14:00:00Z'), estado: 'finalizada' }
-    ]);
-
-    const actPractica = actividades[0];
-    const actPrep = actividades[1];
+    // 3. Obtener Actividades (ya creadas por actividad.seed.js)
+    const actividades = await Actividad.find();
+    const actPractica = actividades.find(a => a.nombre === 'Práctica de Biología Celular') || actividades[0];
+    const actPrep = actividades.find(a => a.nombre === 'Preparación de Soluciones') || actividades[1];
 
     // 4. Generar Lotes dinámicos y consistentes para todos los ítems
     const lotesGenerados = [];

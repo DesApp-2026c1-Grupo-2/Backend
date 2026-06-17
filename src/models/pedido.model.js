@@ -119,8 +119,6 @@ const pedidoSchema = new mongoose.Schema({
     }
   }],
 }, { 
-},
-{
   timestamps: true,
   strict: true,
   toJSON: {
@@ -130,8 +128,7 @@ const pedidoSchema = new mongoose.Schema({
       delete ret.__v;
     },
   },
-}
-);
+});
 
 // Índices para optimizar queries frecuentes
 pedidoSchema.index({ docente: 1, estado: 1 });
@@ -139,11 +136,10 @@ pedidoSchema.index({ laboratorio: 1 });
 pedidoSchema.index({ fechaHora: -1 });
 
 // Validación pre-save
-pedidoSchema.pre("save", function(next) {
+pedidoSchema.pre("save", function() {
   if (!this.recursos || this.recursos.length === 0) {
-    return next(new Error("Un pedido debe tener al menos un recurso"));
+    throw new Error("Un pedido debe tener al menos un recurso");
   }
-  next();
 });
 
 export default mongoose.models.Pedido || mongoose.model("Pedido", pedidoSchema);

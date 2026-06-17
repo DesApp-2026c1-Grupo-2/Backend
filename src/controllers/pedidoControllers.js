@@ -331,15 +331,8 @@ const createPedido = async (req, res) => {
   try {
     const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
     
-    // Combinar fecha y hora en un objeto Date
-    let fechaHora;
-    if (fecha && hora) {
-      fechaHora = new Date(`${fecha}T${hora}`);
-    } else if (req.body.fechaHora) {
-      fechaHora = new Date(req.body.fechaHora);
-    } else {
-      return res.status(400).json({ error: "fechaHora es obligatorio" });
-    }
+    // La fechaHora ya viene construida y validada desde el middleware validatePedidos
+    const fechaHora = req.body.fechaHora;
 
     if (!validarAnticipacionPedido(fechaHora)) {
       return res.status(400).json({
@@ -385,12 +378,9 @@ const updatePedido = async (req, res) => {
     const { id } = req.params;
     const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
     
-    // Combinar fecha y hora si vienen separadas
     const actualizacion = { ...resto };
-    if (fecha && hora) {
-      actualizacion.fechaHora = new Date(`${fecha}T${hora}`);
-    } else if (req.body.fechaHora) {
-      actualizacion.fechaHora = new Date(req.body.fechaHora);
+    if (req.body.fechaHora) {
+      actualizacion.fechaHora = req.body.fechaHora;
     }
 
     const pedidoExistente = await Pedido.findById(id);

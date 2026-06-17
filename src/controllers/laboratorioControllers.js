@@ -1,4 +1,5 @@
 import Laboratorio from '../models/laboratorio.model.js';
+import Pedido from '../models/pedido.model.js';
 
 // C: Crear un nuevo laboratorio
 const crearLaboratorio = async (req, res) => {
@@ -127,6 +128,65 @@ const eliminarLaboratorioLogico = async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 };
+
+// R: Obtener laboratorios disponibles para un horario (inicio y fin), considerando solapamientos
+const obtenerLaboratoriosDisponiblesPorHorario = async (req, res) => {
+    try {
+        const { fechaHora, fechaFin, duracionClase, alumnos } = req.query;
+
+        if (!fechaHora) {
+            return res.status(400).json({ message: "Debe indicar fechaHora" });
+        }
+
+        const inicioSolicitado = new Date(fechaHora);
+        if (isNaN(inicioSolicitado.getTime())) {
+            return res.status(400).json({ message: "fechaHora inválida" });
+        }
+
+        // El fin del horario solicitado puede venir explícito (fechaFin) o calcularse
+        // a partir de la duración de la clase (igual criterio que verificarConflictos: +30 min de margen).
+        let finSolicitado;
+        if (fechaFin) {
+            finSolicitado = new Date(fechaFin);
+            if (isNaN(finSolicitado.getTime())) {
+                return res.status(400).json({ message: "fechaFin inválida" });
+            }
+        } else {
+            const duracion = duracionClase ? Number(duracionClase) : 120;
+            finSolicitado = new Date(inicioSolicitado.getTime() + (duracion + 30) * 60 * 1000);
+        }
+
+        // Ventana de inicio considerada para verificar solapamientos (igual criterio que verificarConflictos: 1hs antes)
+        const inicioVentana = new Date(inicioSolicitado.getTime() - 60 * 60 * 1000);
+
+        const pedidos = await Pedido.find({
+            fechaInicioReal: { $lt: finSolicitado },
+            fechaFinReal: { $gt: inicioVentana },
+            estado: { $in: ["Pendiente", "En Revisión", "Aceptado"] },
+            activo: { $ne: false },
+        }).select("laboratorio");
+
+        const laboratoriosOcupados = pedidos
+            .map(p => p.laboratorio)
+            .filter(Boolean);
+
+        const filtro = {
+            estado: "disponible",
+            _id: { $nin: laboratoriosOcupados },
+        };
+
+        if (alumnos) {
+            filtro.capacidad = { $gte: Number(alumnos) };
+        }
+
+        const laboratorios = await Laboratorio.find(filtro);
+
+        res.json(laboratorios);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 export {
     crearLaboratorio,
     obtenerLaboratorios,
@@ -135,5 +195,6 @@ export {
     obtenerLaboratoriosPorEdificio,
     actualizarEstadoLaboratorio,
     actualizarLaboratorio,
-    eliminarLaboratorioLogico
+    eliminarLaboratorioLogico,
+    obtenerLaboratoriosDisponiblesPorHorario
 };

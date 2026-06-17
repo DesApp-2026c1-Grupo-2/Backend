@@ -82,7 +82,8 @@ const pedidoSchema = new mongoose.Schema({
   laboratorio: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Laboratorio",
-    required: true,
+    required: false,
+    default: null,
   },
   alumnos: {
     type: Number,
@@ -108,6 +109,15 @@ const pedidoSchema = new mongoose.Schema({
     index: true,
   },
   comentarios: [comentarioSchema],
+  vistoPor: [{
+    usuario: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Usuario"
+    },
+    ultimoComentarioVisto: {
+      type: Date
+    }
+  }],
 }, { 
 },
 {

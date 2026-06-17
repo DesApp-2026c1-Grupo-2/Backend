@@ -19,6 +19,14 @@ const verificarConflictos = async (pedido) => {
   // LABORATORIO
   // =========================
 
+  if (!pedido.laboratorio) {
+    conflictos.push({
+      tipo: "laboratorio_no_asignado",
+      severidad: "media",
+      mensaje: "El pedido no tiene un laboratorio asignado. Debe asignarse uno antes de aprobar.",
+    });
+  } else {
+
   const laboratorio = await Laboratorio.findById(
     pedido.laboratorio
   );
@@ -73,6 +81,7 @@ const verificarConflictos = async (pedido) => {
         });
       }
     }
+  }
   }
 
   // =========================

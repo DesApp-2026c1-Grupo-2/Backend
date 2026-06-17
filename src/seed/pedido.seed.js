@@ -15,9 +15,10 @@ export const seedPedidos = async () => {
     const equipo = await Equipo.findOne();
     const itemMaterial = await Item.findOne({ tipo: "material" });
     const itemReactivo = await Item.findOne({ tipo: "reactivo" });
+    const itemPipeta = await Item.findOne({ codigo: "MAT-003" });
+    const equipoDisp = await Equipo.findOne({ estado: "disponible" });
 
-    // Verificamos que existan las dependencias antes de intentar insertar
-    if (!docente || !laboratorio || !equipo || !itemMaterial || !itemReactivo) {
+    if (!docente || !laboratorio || !equipoDisp || !itemMaterial) {
       console.log("⚠️ No se pudieron sembrar los pedidos. Asegúrate de ejecutar primero los seeds de Usuarios, Laboratorios, Inventario y Equipos.");
       return;
     }
@@ -32,9 +33,9 @@ export const seedPedidos = async () => {
         alumnos: 20,
         estado: "Pendiente",
         recursos: [
-          { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: equipoDisp._id, tipoRecurso: "Equipo", cantidad: 1 },
           { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 10 },
-          { recursoId: itemReactivo._id, tipoRecurso: "Item", cantidad: 2 },
+          { recursoId: itemReactivo ? itemReactivo._id : itemMaterial._id, tipoRecurso: "Item", cantidad: 2 },
         ],
       },
       {
@@ -46,8 +47,9 @@ export const seedPedidos = async () => {
         alumnos: 15,
         estado: "Aceptado",
         recursos: [
-          { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 2 },
-          { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 5 },
+          { recursoId: equipoDisp._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 15 },
+          { recursoId: itemPipeta ? itemPipeta._id : itemMaterial._id, tipoRecurso: "Item", cantidad: 5 },
         ],
         checklist: [
           { descripcion: "Acondicionar equipo reservado y verificar su funcionamiento.", tipo: "Logistica", estado: "Completada" },
@@ -63,7 +65,7 @@ export const seedPedidos = async () => {
         alumnos: 22,
         estado: "Rechazado",
         recursos: [
-          { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 3 },
+          { recursoId: equipoDisp._id, tipoRecurso: "Equipo", cantidad: 3 },
           { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 8 },
         ],
         detalleProblemas: [
@@ -80,8 +82,21 @@ export const seedPedidos = async () => {
         alumnos: 18,
         estado: "Finalizado",
         recursos: [
-          { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 1 },
-          { recursoId: itemReactivo._id, tipoRecurso: "Item", cantidad: 5 }
+          { recursoId: equipoDisp._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: itemReactivo ? itemReactivo._id : itemMaterial._id, tipoRecurso: "Item", cantidad: 5 }
+        ]
+      },
+      {
+        materia: "Microbiología",
+        docente: docente._id,
+        fechaHora: new Date("2026-06-08T10:00:00"),
+        duracionClase: 120,
+        laboratorio: laboratorio._id,
+        alumnos: 25,
+        estado: "Aceptado", // "En Curso" no es un estado válido para Pedido, pero sí para la Reserva.
+        recursos: [
+          { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 12 },
+          { recursoId: itemPipeta ? itemPipeta._id : itemMaterial._id, tipoRecurso: "Item", cantidad: 10 }
         ]
       }
     ];

@@ -42,6 +42,31 @@ export const seedEquipos = async () => {
         estado: "mantenimiento",
         edificioId: edificio._id,
         laboratorioId: laboratorio ? laboratorio._id : undefined
+      },
+      {
+        nombre: "Centrífuga Refrigerada",
+        codigo: "EQ-CEN-001",
+        tipo: "Centrífuga",
+        esFijo: true,
+        estado: "disponible",
+        edificioId: edificio._id,
+        laboratorioId: laboratorio ? laboratorio._id : undefined
+      },
+      {
+        nombre: "Agitador Magnético",
+        codigo: "EQ-AGI-001",
+        tipo: "Agitador",
+        esFijo: false,
+        estado: "fuera de servicio",
+        edificioId: edificio._id
+      },
+      {
+        nombre: "Microscopio Óptico Trinocular",
+        codigo: "EQ-MIC-002",
+        tipo: "Microscopio",
+        esFijo: false,
+        estado: "disponible",
+        edificioId: edificio._id
       }
     ];
 

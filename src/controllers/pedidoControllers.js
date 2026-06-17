@@ -7,6 +7,7 @@ import Reserva from "../models/reserva.model.js";
 import { calcularVentana } from "../services/fechasReserva.js";
 import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
 import { registrarHistorial } from "../services/pedidoHistorial.js";
+import isEqual from "lodash.isequal";
 
 const getPedidos = async (req, res) => {
   try {
@@ -217,7 +218,13 @@ const aprobarPedido = async (req, res) => {
       pedido,
       req.usuario.id,
       "APROBACION",
-      "Pedido aprobado"
+      "Pedido aprobado",
+      {
+        estado: {
+          antes: "Pendiente",
+          despues: "Aceptado"
+        }
+      }
     );
 
     pedido.checklist = checklist;
@@ -305,7 +312,13 @@ const finalizarPedido = async (req, res) => {
       pedido,
       req.usuario.id,
       "FINALIZACION",
-      "Pedido finalizado"
+      "Pedido finalizado",
+      {
+        estado: {
+          antes: "Aceptado",
+          despues: "Finalizado"
+        }
+      }
     );
 
     const pedidoFinalizado = await pedido.save();
@@ -393,42 +406,45 @@ const createPedido = async (req, res) => {
 const updatePedido = async (req, res) => {
   try {
     const { id } = req.params;
-    const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
+    const { fecha, hora, ...resto } = req.body;
 
-    // Combinar fecha y hora si vienen separadas
     const actualizacion = { ...resto };
 
+    // =========================
+    // FECHA HORA
+    // =========================
     if (fecha && hora) {
       actualizacion.fechaHora = new Date(`${fecha}T${hora}`);
     } else if (req.body.fechaHora) {
       actualizacion.fechaHora = new Date(req.body.fechaHora);
     }
 
-    const pedidoExistente = await Pedido.findById(id);
+    const pedidoDoc = await Pedido.findById(id);
 
-    if (!pedidoExistente) {
-      return res.status(404).json({
-        error: "Pedido no encontrado"
-      });
+    if (!pedidoDoc) {
+      return res.status(404).json({ error: "Pedido no encontrado" });
     }
 
-    const fechaBase =
-      actualizacion.fechaHora ||
-      pedidoExistente.fechaHora;
+    const pedidoExistente = pedidoDoc.toObject();
 
-    if (
-      fechaBase &&
-      !validarAnticipacionPedido(new Date(fechaBase))
-    ) {
+    // =========================
+    // VALIDACIÓN FECHA
+    // =========================
+    const fechaBase =
+      actualizacion.fechaHora || pedidoExistente.fechaHora;
+
+    if (fechaBase && !validarAnticipacionPedido(new Date(fechaBase))) {
       return res.status(400).json({
         error:
-          "No se pueden actualizar pedidos a menos de 2 horas de anticipación el mismo día o a fechas pasadas"
+          "No se pueden actualizar pedidos a menos de 2 horas o en fechas pasadas"
       });
     }
 
+    // =========================
+    // RECALCULAR HORARIO
+    // =========================
     const duracionBase =
-      actualizacion.duracionClase ||
-      pedidoExistente.duracionClase;
+      actualizacion.duracionClase || pedidoExistente.duracionClase;
 
     if (fechaBase && duracionBase) {
       const { inicio, fin } = calcularVentana(
@@ -441,70 +457,96 @@ const updatePedido = async (req, res) => {
     }
 
     // =========================
-    // DETECTAR CAMBIOS
+    // DETECCIÓN DE CAMBIOS
     // =========================
-
     const cambios = {};
 
-    if (
-      actualizacion.materia !== undefined &&
-      actualizacion.materia !== pedidoExistente.materia
-    ) {
-      cambios.materia = {
-        antes: pedidoExistente.materia,
-        despues: actualizacion.materia
-      };
-    }
+    const compararSimple = [
+      "materia",
+      "alumnos",
+      "duracionClase",
+      "fechaHora",
+      "laboratorio"
+    ];
 
-    if (
-      actualizacion.alumnos !== undefined &&
-      actualizacion.alumnos !== pedidoExistente.alumnos
-    ) {
-      cambios.alumnos = {
-        antes: pedidoExistente.alumnos,
-        despues: actualizacion.alumnos
-      };
-    }
+    const normalize = (v) => {
+      if (!v) return null;
 
-    if (
-      actualizacion.duracionClase !== undefined &&
-      actualizacion.duracionClase !== pedidoExistente.duracionClase
-    ) {
-      cambios.duracionClase = {
-        antes: pedidoExistente.duracionClase,
-        despues: actualizacion.duracionClase
-      };
-    }
+      if (v instanceof Date) return v.toISOString();
 
-    if (
-      actualizacion.fechaHora &&
-      new Date(actualizacion.fechaHora).getTime() !==
-      new Date(pedidoExistente.fechaHora).getTime()
-    ) {
-      cambios.fechaHora = {
-        antes: pedidoExistente.fechaHora,
-        despues: actualizacion.fechaHora
-      };
-    }
+      if (typeof v === "object" && v._id) return v._id.toString();
 
+      return JSON.stringify(v);
+    };
+
+    for (const campo of compararSimple) {
+      if (actualizacion[campo] === undefined) continue;
+
+      const antes = pedidoExistente[campo];
+      const despues = actualizacion[campo];
+
+      if (normalize(antes) !== normalize(despues)) {
+        cambios[campo] = {
+          antes,
+          despues
+        };
+      }
+    }    
+
+    // =========================
+    // HORARIO REAL
+    // =========================
     if (
-      actualizacion.laboratorio &&
-      actualizacion.laboratorio.toString() !==
-      pedidoExistente.laboratorio?.toString()
+      actualizacion.fechaInicioReal &&
+      actualizacion.fechaFinReal
     ) {
-      cambios.laboratorio = {
-        antes: pedidoExistente.laboratorio,
-        despues: actualizacion.laboratorio
+      const antes = {
+        inicio: pedidoExistente.fechaInicioReal,
+        fin: pedidoExistente.fechaFinReal
       };
+
+      const despues = {
+        inicio: actualizacion.fechaInicioReal,
+        fin: actualizacion.fechaFinReal
+      };
+
+      if (
+        new Date(antes.inicio).getTime() !== new Date(despues.inicio).getTime() ||
+        new Date(antes.fin).getTime() !== new Date(despues.fin).getTime()
+      ) {
+        cambios.horario = { antes, despues };
+      }
     }
 
     // =========================
-    // REGISTRAR HISTORIAL
+    // RECURSOS (IMPORTANTE)
     // =========================
+    if (actualizacion.recursos) {
+      const normalizar = (r) => ({
+        recursoId: r.recursoId?.toString?.() || r.recursoId,
+        tipoRecurso: r.tipoRecurso,
+        cantidad: r.cantidad
+      });
 
+      const antesRecursos = (pedidoExistente.recursos || []).map(normalizar);
+      const despuesRecursos = (actualizacion.recursos || []).map(normalizar);
+
+      if (
+        JSON.stringify(antesRecursos) !== JSON.stringify(despuesRecursos)
+      ) {
+        cambios.recursos = {
+          antes: antesRecursos,
+          despues: despuesRecursos
+        };
+      }
+    }
+
+    // =========================
+    // HISTORIAL
+    // =========================
     if (Object.keys(cambios).length > 0) {
       registrarHistorial(
-        pedidoExistente,
+        pedidoDoc,
         req.usuario.id,
         "MODIFICACION",
         "Se modificó el pedido",
@@ -515,36 +557,21 @@ const updatePedido = async (req, res) => {
     // =========================
     // APLICAR CAMBIOS
     // =========================
+    Object.assign(pedidoDoc, actualizacion);
 
-    Object.assign(
-      pedidoExistente,
-      actualizacion
-    );
+    await pedidoDoc.save();
 
-    await pedidoExistente.save();
-
-    await pedidoExistente.populate(
-      "docente",
-      "nombre apellido email"
-    );
-
-    await pedidoExistente.populate(
-      "laboratorio",
-      "nombre tipo"
-    );
-
-    await pedidoExistente.populate({
+    await pedidoDoc.populate("docente", "nombre apellido email");
+    await pedidoDoc.populate("laboratorio", "nombre tipo");
+    await pedidoDoc.populate({
       path: "recursos.recursoId",
-      select:
-        "nombre tipo codigo esFijo estado",
+      select: "nombre tipo codigo esFijo estado"
     });
 
-    res.json(pedidoExistente);
+    res.json(pedidoDoc);
 
   } catch (error) {
-    res.status(400).json({
-      error: error.message
-    });
+    res.status(400).json({ error: error.message });
   }
 };
 

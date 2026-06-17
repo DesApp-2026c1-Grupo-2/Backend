@@ -2,9 +2,11 @@ import mongoose from "mongoose";
 import "dotenv/config";
 import { seedUsuarios } from "./usuario.seed.js";
 import { seedLaboratorios } from "./laboratorio.seed.js";
+import { seedActividades } from "./actividad.seed.js";
 import { seedInventario } from "./inventario.seed.js";
 import { seedPedidos } from "./pedido.seed.js";
 import { seedEquipos } from "./equipo.seed.js";
+import { seedSugerenciasRecurso } from "./sugerenciaRecurso.seed.js";
 import { seedReservas } from "./reserva.seed.js";
 import { seedDescartes } from "./descarte.seed.js";
 
@@ -19,8 +21,10 @@ const runSeeds = async () => {
     // El orden es importante para mantener la integridad referencial
     await seedUsuarios();
     await seedLaboratorios();
+    await seedActividades();
     await seedInventario();
     await seedEquipos();
+    await seedSugerenciasRecurso();
     await seedPedidos();
     await seedReservas();
     await seedDescartes();

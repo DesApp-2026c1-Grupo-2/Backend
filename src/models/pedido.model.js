@@ -164,8 +164,7 @@ const pedidoSchema = new mongoose.Schema({
       delete ret.__v;
     },
   },
-}
-);
+});
 
 // Índices para optimizar queries frecuentes
 pedidoSchema.index({ docente: 1, estado: 1 });

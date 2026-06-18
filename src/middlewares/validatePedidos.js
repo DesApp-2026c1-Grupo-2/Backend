@@ -199,6 +199,11 @@ export const validarPedido = async (req, res, next) => {
       });
     }
 
+    // Eliminar las propiedades originales para evitar conflictos con validaciones
+    // posteriores (ej. Joi.xor() en pedidoSchema)
+    delete data.fecha;
+    delete data.hora;
+
     if (!data.duracionClase || isNaN(Number(data.duracionClase))) {
       throw new Error("El campo 'duracionClase' es obligatorio y debe ser un número en minutos.");
     }
@@ -224,7 +229,11 @@ export const validarPedido = async (req, res, next) => {
 
     next();
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ 
+      error: "Error de validación", 
+      detalles: [{ message: error.message, path: ["general"] }],
+      errors: [{ message: error.message, path: ["general"] }]
+    });
   }
 };
 

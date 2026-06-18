@@ -1,7 +1,7 @@
 import { Router } from "express";
 const router = Router()
 
-import validateSchema from "../middlewares/validateSchema.js";
+import { validate } from '../middlewares/validator.middleware.js';
 import { 
     createEquipoSchema, 
     updateEquipoSchema, 
@@ -15,10 +15,10 @@ import {deleteEquipo,
     getEquipos,
     createEquipo } from '../controllers/equipoControllers.js';
 
-router.post("/", validateSchema(createEquipoSchema, 'body'), createEquipo);
-router.get("/", validateSchema(equipoQuerySchema, 'query'), getEquipos);
-router.get("/:id", validateSchema(equipoIdParamSchema, 'params'), getEquipoById);
-router.put("/:id", validateSchema(equipoIdParamSchema, 'params'), validateSchema(updateEquipoSchema, 'body'), updateEquipo);
-router.delete("/:id", validateSchema(equipoIdParamSchema, 'params'), deleteEquipo);
+router.post("/", validate(createEquipoSchema, 'body'), createEquipo);
+router.get("/", validate(equipoQuerySchema, 'query'), getEquipos);
+router.get("/:id", validate(equipoIdParamSchema, 'params'), getEquipoById);
+router.put("/:id", validate(equipoIdParamSchema, 'params'), validate(updateEquipoSchema, 'body'), updateEquipo);
+router.delete("/:id", validate(equipoIdParamSchema, 'params'), deleteEquipo);
 
 export default router;

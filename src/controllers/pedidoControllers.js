@@ -3,6 +3,7 @@ import Lote from "../models/lote.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
 import { verificarConflictos } from "../services/pedidoConflictos.js";
+import Descarte from "../models/descarte.model.js";
 import Reserva from "../models/reserva.model.js";
 import { calcularVentana } from "../services/fechasReserva.js";
 import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
@@ -287,7 +288,19 @@ const finalizarPedido = async (req, res) => {
       return res.status(400).json({ error: "El pedido debe estar en estado 'Aceptado' para poder finalizarse." });
     }
 
-    // 1. Proceder con la liberación de los equipos
+    // 1. Obtener descartes para calcular cuánto no debe regresar a inventario
+    const descartes = await Descarte.find({ pedidoId: id });
+    const lotesDescartados = {};
+    for (const d of descartes) {
+      if (d.tipo !== "equipo" && d.lotesAfectados) {
+        for (const la of d.lotesAfectados) {
+          const lId = la.loteId.toString();
+          lotesDescartados[lId] = (lotesDescartados[lId] || 0) + la.cantidad;
+        }
+      }
+    }
+
+    // 2. Proceder con la liberación de los equipos y materiales
     for (const r of pedido.recursos) {
       const ref = r.modeloRef || r.tipoRecurso;
       
@@ -297,15 +310,21 @@ const finalizarPedido = async (req, res) => {
         // Solo reponemos los ítems que NO son consumibles (ej. materiales como tubos de ensayo)
         if (item && item.esConsumible === false && r.lotesDescontados && r.lotesDescontados.length > 0) {
           for (const loteDesc of r.lotesDescontados) {
-            await Lote.findByIdAndUpdate(loteDesc.loteId, {
-              $inc: { cantidadDisponible: loteDesc.cantidadDescontada }
-            });
+            const loteIdStr = loteDesc.loteId.toString();
+            const cantidadDescartada = lotesDescartados[loteIdStr] || 0;
+            const aDevolver = Math.max(0, loteDesc.cantidadDescontada - cantidadDescartada);
+
+            if (aDevolver > 0) {
+              await Lote.findByIdAndUpdate(loteDesc.loteId, {
+                $inc: { cantidadDisponible: aDevolver }
+              });
+            }
           }
         }
       }
     }
 
-    // 2. Actualizar estado del pedido
+    // 3. Actualizar estado del pedido
     pedido.estado = "Finalizado";
 
     registrarHistorial(
@@ -346,15 +365,8 @@ const createPedido = async (req, res) => {
   try {
     const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
     
-    // Combinar fecha y hora en un objeto Date
-    let fechaHora;
-    if (fecha && hora) {
-      fechaHora = new Date(`${fecha}T${hora}`);
-    } else if (req.body.fechaHora) {
-      fechaHora = new Date(req.body.fechaHora);
-    } else {
-      return res.status(400).json({ error: "fechaHora es obligatorio" });
-    }
+    // La fechaHora ya viene construida y validada desde el middleware validatePedidos
+    const fechaHora = req.body.fechaHora;
 
     if (!validarAnticipacionPedido(fechaHora)) {
       return res.status(400).json({

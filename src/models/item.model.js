@@ -23,9 +23,12 @@ const itemSchema = new mongoose.Schema({
     default: false,
     validate: {
       validator: function(v) {
+        // En operaciones de update (findOneAndUpdate), 'this' no apunta al documento.
+        // Leemos la propiedad dependiendo de si es Save (this.tipo) o Update (this.getUpdate).
+        const tipoActual = this.tipo || (this.getUpdate ? (this.getUpdate().tipo || this.getUpdate().$set?.tipo) : null);
         // Solo los reactivos pueden requerir receta
         // Para otros tipos (material, sustancia, equipo), debe ser false o puede ser omitido (default false)
-        if (this.tipo === 'reactivo') {
+        if (tipoActual === 'reactivo') {
           return true; // Los reactivos pueden ser true o false
         }
         // Para otros tipos, solo permitir false (o default)

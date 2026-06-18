@@ -7,6 +7,7 @@ vi.mock('../../../models/lote.model.js');
 vi.mock('../../../models/item.model.js');
 vi.mock('../../../models/laboratorio.model.js');
 vi.mock('../../../models/equipo.model.js');
+vi.mock('../../../models/descarte.model.js');
 vi.mock('../../../services/pedidoConflictos.js');
 vi.mock('../../../services/pedidoValidaciones.js');
 
@@ -16,6 +17,7 @@ import Lote from '../../../models/lote.model.js';
 import Item from '../../../models/item.model.js';
 import Laboratorio from '../../../models/laboratorio.model.js';
 import Equipo from '../../../models/equipo.model.js';
+import Descarte from '../../../models/descarte.model.js';
 import { verificarConflictos } from '../../../services/pedidoConflictos.js';
 import { validarAnticipacionPedido } from '../../../services/pedidoValidaciones.js';
 import {
@@ -87,6 +89,7 @@ describe('pedidoControllers', () => {
     Item.findById = vi.fn().mockResolvedValue(null);
     Laboratorio.findById = vi.fn().mockReturnValue(createQueryMock(null));
     Equipo.findById = vi.fn().mockReturnValue(createQueryMock(null));
+    Descarte.find = vi.fn().mockResolvedValue([]);
 
     verificarConflictos.mockResolvedValue([]);
     validarAnticipacionPedido.mockReturnValue(true);
@@ -323,6 +326,55 @@ describe('pedidoControllers', () => {
       expect(mockPedido.save).toHaveBeenCalled();
       expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith({ pedidoId: 'p_1' }, { estado: 'Finalizada' });
       expect(res.json).toHaveBeenCalled();
+    });
+
+    it('no debe devolver al stock la cantidad de materiales descartados', async () => {
+      const req = mockReq({ params: { id: 'p_1' } });
+      const res = mockRes();
+      
+      // Creamos un pedido mockeado donde se usaron 2 lotes de un material
+      const mockPedido = {
+        _id: 'p_1',
+        estado: 'Aceptado',
+        recursos: [
+          {
+            tipoRecurso: 'Item',
+            recursoId: 'item_1',
+            cantidad: 10,
+            lotesDescontados: [
+              { loteId: 'lote_1', cantidadDescontada: 5 },
+              { loteId: 'lote_2', cantidadDescontada: 5 }
+            ]
+          }
+        ],
+        save: vi.fn(),
+        populate: vi.fn(),
+      };
+      mockPedido.save.mockResolvedValue(mockPedido);
+      mockPedido.populate.mockResolvedValue(mockPedido);
+      
+      Pedido.findById.mockResolvedValue(mockPedido);
+      
+      // Simulamos que es un material retornable (no consumible)
+      Item.findById.mockResolvedValue({ _id: 'item_1', esConsumible: false });
+
+      // Simulamos que se perdieron o rompieron 3 ítems del lote_1 y todos los 5 ítems del lote_2
+      Descarte.find.mockResolvedValue([
+        {
+          tipo: 'material',
+          lotesAfectados: [
+            { loteId: 'lote_1', cantidad: 3 },
+            { loteId: 'lote_2', cantidad: 5 }
+          ]
+        }
+      ]);
+
+      await finalizarPedido(req, res);
+
+      // Verificamos que solo se le devuelvan 2 unidades al lote_1 (5 iniciales - 3 rotas = 2 devueltas)
+      expect(Lote.findByIdAndUpdate).toHaveBeenCalledWith('lote_1', { $inc: { cantidadDisponible: 2 } });
+      // Verificamos que no se llamó una segunda vez (no se debió devolver stock del lote 2 ya que se descartó completo)
+      expect(Lote.findByIdAndUpdate).toHaveBeenCalledTimes(1);
     });
   });
 

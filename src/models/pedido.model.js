@@ -55,6 +55,37 @@ const tareaSchema = new mongoose.Schema({
   }
 });
 
+const historialSchema = new mongoose.Schema({
+  usuario: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Usuario"
+  },
+
+  accion: {
+    type: String,
+    enum: [
+      "CREACION",
+      "MODIFICACION",
+      "CAMBIO_ESTADO",
+      "APROBACION",
+      "RECHAZO",
+      "FINALIZACION",
+      "COMENTARIO",
+      "ELIMINACION"
+    ]
+  },
+
+  descripcion: String,
+
+  cambios: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  }
+
+}, {
+  timestamps: true
+});
+
 const pedidoSchema = new mongoose.Schema({
   materia: {
     type: String,
@@ -118,12 +149,17 @@ const pedidoSchema = new mongoose.Schema({
       type: Date
     }
   }],
-}, { 
+  historial: {
+    type: [historialSchema],
+    default: []
+  },  
+},
+{
   timestamps: true,
   strict: true,
   toJSON: {
     transform: (_, ret) => {
-      ret.id = ret._id.toString();
+      ret.id = ret._id.toString(); //porque? mongo es objectId, no string, y si lo necesito como string lo convierto en el controlador, no acá
       delete ret._id;
       delete ret.__v;
     },

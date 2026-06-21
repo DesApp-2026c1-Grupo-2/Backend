@@ -192,8 +192,12 @@ export const validarPedido = async (req, res, next) => {
 
     const fechaHora = construirFechaHora(data);
 
-    validarFechaHora(fechaHora);
-    req.body.fechaHora = fechaHora;
+    if (!fechaHora || isNaN(fechaHora.getTime())) {
+      return res.status(400).json({
+        error: "fechaHora inválida",
+        debug: data
+      });
+    }
 
     // Eliminar las propiedades originales para evitar conflictos con validaciones
     // posteriores (ej. Joi.xor() en pedidoSchema)

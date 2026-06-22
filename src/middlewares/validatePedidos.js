@@ -91,9 +91,8 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
   const inicioReal = new Date(fechaHora.getTime() - 60 * 60 * 1000);
   const finReal = new Date(fechaHora.getTime() + (duracionClase + 30) * 60 * 1000);
 
-  if (!Array.isArray(data.recursos) || data.recursos.length === 0) {
-    detalles.push("El pedido debe contener al menos un recurso.");
-    return detalles;
+  if (!Array.isArray(data.recursos)) {
+    data.recursos = [];
   }
 
   for (const recurso of data.recursos) {
@@ -198,6 +197,9 @@ export const validarPedido = async (req, res, next) => {
         debug: data
       });
     }
+
+    // Guardar la fechaHora construida en req.body para que el controller la use
+    req.body.fechaHora = fechaHora;
 
     // Eliminar las propiedades originales para evitar conflictos con validaciones
     // posteriores (ej. Joi.xor() en pedidoSchema)

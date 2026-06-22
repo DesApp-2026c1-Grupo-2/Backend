@@ -378,8 +378,8 @@ const createPedido = async (req, res) => {
       return res.status(400).json({ error: "duracionClase es obligatorio" });
     }
 
-    if (!resto.recursos || resto.recursos.length === 0) {
-      return res.status(400).json({ error: "Un pedido debe tener al menos un recurso" });
+    if (!Array.isArray(resto.recursos)) {
+      resto.recursos = [];
     }
 
     const { inicio, fin } = calcularVentana(fechaHora, resto.duracionClase);

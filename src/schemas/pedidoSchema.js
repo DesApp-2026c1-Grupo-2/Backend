@@ -67,10 +67,8 @@ const pedidoSchemaJoi = Joi.object({
         "number.min": "Debe haber al menos 1 alumno",
     }),
     estado: Joi.string().valid("Pendiente", "En Revisión", "Aceptado", "Rechazado", "Finalizado").default("Pendiente"),
-    recursos: Joi.array().items(recursoSchemaJoi).min(1).required().messages({
+    recursos: Joi.array().items(recursoSchemaJoi).min(0).default([]).messages({
         "array.base": "Los recursos deben ser un arreglo",
-        "array.min": "Un pedido debe tener al menos un recurso",
-        "any.required": "Los recursos son obligatorios"
     }),
     detalleProblemas: Joi.array().items(Joi.string()).default([]).messages({
         "array.base": "El detalle de problemas debe ser un arreglo de cadenas",

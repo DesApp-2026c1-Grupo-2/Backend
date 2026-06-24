@@ -7,6 +7,8 @@ import Descarte from "../models/descarte.model.js";
 import Reserva from "../models/reserva.model.js";
 import { calcularVentana } from "../services/fechasReserva.js";
 import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
+import { registrarHistorial } from "../services/pedidoHistorial.js";
+import isEqual from "lodash.isequal";
 
 const getPedidos = async (req, res) => {
   try {
@@ -72,7 +74,11 @@ const getPedidoById = async (req, res) => {
       .populate({
         path: "comentarios.usuario",
         select: "nombre apellido rol"
-      });      
+      })
+      .populate({
+        path: "historial.usuario",
+        select: "nombre apellido rol"
+      });    
 
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
@@ -208,6 +214,20 @@ const aprobarPedido = async (req, res) => {
 
     // 3. Actualizar estado del pedido
     pedido.estado = "Aceptado";
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "APROBACION",
+      "Pedido aprobado",
+      {
+        estado: {
+          antes: "Pendiente",
+          despues: "Aceptado"
+        }
+      }
+    );
+
     pedido.checklist = checklist;
     const pedidoAprobado = await pedido.save();
 
@@ -306,6 +326,20 @@ const finalizarPedido = async (req, res) => {
 
     // 3. Actualizar estado del pedido
     pedido.estado = "Finalizado";
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "FINALIZACION",
+      "Pedido finalizado",
+      {
+        estado: {
+          antes: "Aceptado",
+          despues: "Finalizado"
+        }
+      }
+    );
+
     const pedidoFinalizado = await pedido.save();
 
     // 3. Sincronizar el estado de la Reserva asociada
@@ -344,8 +378,8 @@ const createPedido = async (req, res) => {
       return res.status(400).json({ error: "duracionClase es obligatorio" });
     }
 
-    if (!resto.recursos || resto.recursos.length === 0) {
-      return res.status(400).json({ error: "Un pedido debe tener al menos un recurso" });
+    if (!Array.isArray(resto.recursos)) {
+      resto.recursos = [];
     }
 
     const { inicio, fin } = calcularVentana(fechaHora, resto.duracionClase);
@@ -358,6 +392,13 @@ const createPedido = async (req, res) => {
       detalleProblemas: req.detalleProblemas || [],
       estado: req.estadoCalculado || "Pendiente",
     });
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "CREACION",
+      "Pedido creado"
+    );    
 
     const nuevo = await pedido.save();
 
@@ -373,105 +414,287 @@ const createPedido = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
 const updatePedido = async (req, res) => {
   try {
     const { id } = req.params;
-    const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
-    
+    const { fecha, hora, ...resto } = req.body;
+
     const actualizacion = { ...resto };
-    if (req.body.fechaHora) {
-      actualizacion.fechaHora = req.body.fechaHora;
+
+    // =========================
+    // FECHA HORA
+    // =========================
+    if (fecha && hora) {
+      actualizacion.fechaHora = new Date(`${fecha}T${hora}`);
+    } else if (req.body.fechaHora) {
+      actualizacion.fechaHora = new Date(req.body.fechaHora);
     }
 
-    const pedidoExistente = await Pedido.findById(id);
-    if (!pedidoExistente) {
+    const pedidoDoc = await Pedido.findById(id);
+
+    if (!pedidoDoc) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
 
-    const fechaBase = actualizacion.fechaHora || pedidoExistente.fechaHora;
+    const pedidoExistente = pedidoDoc.toObject();
+
+    // =========================
+    // VALIDACIÓN FECHA
+    // =========================
+    const fechaBase =
+      actualizacion.fechaHora || pedidoExistente.fechaHora;
 
     if (fechaBase && !validarAnticipacionPedido(new Date(fechaBase))) {
       return res.status(400).json({
-        error: "No se pueden actualizar pedidos a menos de 2 horas de anticipación el mismo día o a fechas pasadas"
+        error:
+          "No se pueden actualizar pedidos a menos de 2 horas o en fechas pasadas"
       });
     }
 
-    const duracionBase = actualizacion.duracionClase || pedidoExistente.duracionClase;
+    // =========================
+    // RECALCULAR HORARIO
+    // =========================
+    const duracionBase =
+      actualizacion.duracionClase || pedidoExistente.duracionClase;
 
     if (fechaBase && duracionBase) {
-      const { inicio, fin } = calcularVentana(new Date(fechaBase), duracionBase);
+      const { inicio, fin } = calcularVentana(
+        new Date(fechaBase),
+        duracionBase
+      );
+
       actualizacion.fechaInicioReal = inicio;
       actualizacion.fechaFinReal = fin;
     }
 
-    const pedido = await Pedido.findByIdAndUpdate(
-      id,
-      actualizacion,
-      { new: true, runValidators: true }
-    )
-      .populate("docente", "nombre apellido email")
-      .populate("laboratorio", "nombre tipo")
-      .populate({
-        path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado",
-      });
+    // =========================
+    // DETECCIÓN DE CAMBIOS
+    // =========================
+    const cambios = {};
 
-    if (!pedido) {
-      return res.status(404).json({ error: "Pedido no encontrado" });
+    const compararSimple = [
+      "materia",
+      "alumnos",
+      "duracionClase",
+      "fechaHora",
+      "laboratorio"
+    ];
+
+    const normalize = (v) => {
+      if (!v) return null;
+
+      if (v instanceof Date) return v.toISOString();
+
+      if (typeof v === "object" && v._id) return v._id.toString();
+
+      return JSON.stringify(v);
+    };
+
+    for (const campo of compararSimple) {
+      if (actualizacion[campo] === undefined) continue;
+
+      const antes = pedidoExistente[campo];
+      const despues = actualizacion[campo];
+
+      if (normalize(antes) !== normalize(despues)) {
+        cambios[campo] = {
+          antes,
+          despues
+        };
+      }
+    }    
+
+    // =========================
+    // HORARIO REAL
+    // =========================
+    if (
+      actualizacion.fechaInicioReal &&
+      actualizacion.fechaFinReal
+    ) {
+      const antes = {
+        inicio: pedidoExistente.fechaInicioReal,
+        fin: pedidoExistente.fechaFinReal
+      };
+
+      const despues = {
+        inicio: actualizacion.fechaInicioReal,
+        fin: actualizacion.fechaFinReal
+      };
+
+      if (
+        new Date(antes.inicio).getTime() !== new Date(despues.inicio).getTime() ||
+        new Date(antes.fin).getTime() !== new Date(despues.fin).getTime()
+      ) {
+        cambios.horario = { antes, despues };
+      }
     }
 
-    res.json(pedido);
+    // =========================
+    // RECURSOS (IMPORTANTE)
+    // =========================
+    if (actualizacion.recursos) {
+      const normalizar = (r) => ({
+        recursoId: r.recursoId?.toString?.() || r.recursoId,
+        tipoRecurso: r.tipoRecurso,
+        cantidad: r.cantidad
+      });
+
+      const antesRecursos = (pedidoExistente.recursos || []).map(normalizar);
+      const despuesRecursos = (actualizacion.recursos || []).map(normalizar);
+
+      if (
+        JSON.stringify(antesRecursos) !== JSON.stringify(despuesRecursos)
+      ) {
+        cambios.recursos = {
+          antes: antesRecursos,
+          despues: despuesRecursos
+        };
+      }
+    }
+
+    // =========================
+    // HISTORIAL
+    // =========================
+    if (Object.keys(cambios).length > 0) {
+      registrarHistorial(
+        pedidoDoc,
+        req.usuario.id,
+        "MODIFICACION",
+        "Se modificó el pedido",
+        cambios
+      );
+    }
+
+    // =========================
+    // APLICAR CAMBIOS
+    // =========================
+    Object.assign(pedidoDoc, actualizacion);
+
+    await pedidoDoc.save();
+
+    await pedidoDoc.populate("docente", "nombre apellido email");
+    await pedidoDoc.populate("laboratorio", "nombre tipo");
+    await pedidoDoc.populate({
+      path: "recursos.recursoId",
+      select: "nombre tipo codigo esFijo estado"
+    });
+
+    res.json(pedidoDoc);
+
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 };
+
 const updateEstado = async (req, res) => {
   try {
     const { id } = req.params;
     const { estado } = req.body;
 
-    if (!["Pendiente", "En Revisión", "Aceptado", "Rechazado", "Finalizado"].includes(estado)) {
-      return res.status(400).json({ error: "Estado no válido" });
+    if (
+      ![
+        "Pendiente",
+        "En Revisión",
+        "Aceptado",
+        "Rechazado",
+        "Finalizado"
+      ].includes(estado)
+    ) {
+      return res.status(400).json({
+        error: "Estado no válido"
+      });
     }
 
-    const pedido = await Pedido.findByIdAndUpdate(
-      id,
-      { estado },
-      { new: true, runValidators: true }
-    )
-      .populate("docente", "nombre apellido email")
-      .populate("laboratorio", "nombre tipo")
-      .populate({
-        path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado",
-      });
+    const pedido = await Pedido.findById(id);
 
     if (!pedido) {
-      return res.status(404).json({ error: "Pedido no encontrado" });
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
     }
 
+    if (pedido.estado === estado) {
+      return res.status(400).json({
+        error: "El pedido ya tiene ese estado"
+      });
+    }    
+
+    const estadoAnterior = pedido.estado;
+
+    pedido.estado = estado;
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "CAMBIO_ESTADO",
+      `Estado cambiado de "${estadoAnterior}" a "${estado}"`,
+      {
+        estado: {
+          antes: estadoAnterior,
+          despues: estado
+        }
+      }
+    );
+
+    await pedido.save();
+
+    await pedido.populate([
+      {
+        path: "docente",
+        select: "nombre apellido email"
+      },
+      {
+        path: "laboratorio",
+        select: "nombre tipo"
+      },
+      {
+        path: "recursos.recursoId",
+        select: "nombre tipo codigo esFijo estado"
+      }
+    ]);
+
     res.json(pedido);
+
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({
+      error: error.message
+    });
   }
 };
 
 const borrarPedidoLogico = async (req, res) => {
   try {
     const { id } = req.params;
-    const pedido = await Pedido.findByIdAndUpdate(
-      id,
-      { activo: false },
-      { new: true }
-    );
-    
+
+    const pedido = await Pedido.findById(id);
+
     if (!pedido) {
-      return res.status(404).json({ error: "Pedido no encontrado" });
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
     }
-    
-    res.json({ message: "Pedido eliminado lógicamente", pedido });
+
+    pedido.activo = false;
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "ELIMINACION",
+      "Pedido eliminado lógicamente"
+    );
+
+    await pedido.save();
+
+    res.json({
+      message: "Pedido eliminado lógicamente",
+      pedido
+    });
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error: error.message
+    });
   }
 };
 
@@ -493,6 +716,13 @@ const agregarComentario = async (req, res) => {
       usuario: req.usuario.id,
       mensaje
     });
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "COMENTARIO",
+      "Se agregó un comentario"
+    );    
 
     await pedido.save();
 
@@ -518,33 +748,41 @@ const agregarComentario = async (req, res) => {
 };
 
 const marcarComentariosVistos = async (req, res) => {
-  const { id } = req.params;
-  const userId = req.usuario.id;
+  try {
+    const { id } = req.params;
+    const userId = req.usuario.id;
 
-  const pedido = await Pedido.findById(id);
+    const ahora = new Date();
 
-  if (!pedido) {
-    return res.status(404).json({ error: "Pedido no encontrado" });
+    const pedido = await Pedido.findById(id);
+
+    if (!pedido) {
+      return res.status(404).json({ error: "Pedido no encontrado" });
+    }
+
+    const idx = pedido.vistoPor.findIndex(
+      v => v.usuario.toString() === userId
+    );
+
+    if (idx >= 0) {
+      pedido.vistoPor[idx].ultimoComentarioVisto = ahora;
+    } else {
+      pedido.vistoPor.push({
+        usuario: userId,
+        ultimoComentarioVisto: ahora
+      });
+    }
+
+    await Pedido.updateOne(
+      { _id: id },
+      { $set: { vistoPor: pedido.vistoPor } }
+    );
+
+    res.json({ ok: true });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-
-  const ahora = new Date();
-
-  const idx = pedido.vistoPor.findIndex(
-    v => v.usuario.toString() === userId
-  );
-
-  if (idx >= 0) {
-    pedido.vistoPor[idx].ultimoComentarioVisto = ahora;
-  } else {
-    pedido.vistoPor.push({
-      usuario: userId,
-      ultimoComentarioVisto: ahora
-    });
-  }
-
-  await pedido.save();
-
-  res.json({ ok: true });
 };
 
 export {

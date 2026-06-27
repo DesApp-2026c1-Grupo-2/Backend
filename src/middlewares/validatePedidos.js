@@ -21,10 +21,16 @@ const validarFechaHora = (fechaHora) => {
   }
 };
 
-const validarConflictoLaboratorio = async (data, fechaHora, pedidoId) => {
+const validarConflictoLaboratorio = async (data, fechaHora, pedidoId, duracionClase) => {
+  if (!data.laboratorio) return null;
+
+  const inicioReal = new Date(fechaHora.getTime() - 60 * 60 * 1000);
+  const finReal = new Date(fechaHora.getTime() + (duracionClase + 30) * 60 * 1000);
+
   const filtroConflicto = {
     laboratorio: data.laboratorio,
-    fechaHora,
+    fechaInicioReal: { $lt: finReal },
+    fechaFinReal: { $gt: inicioReal },
     estado: { $ne: "Rechazado" },
     activo: { $ne: false },
   };
@@ -35,12 +41,14 @@ const validarConflictoLaboratorio = async (data, fechaHora, pedidoId) => {
 
   const existe = await Pedido.findOne(filtroConflicto);
   if (existe) {
-    return "El laboratorio ya está ocupado en ese horario";
+    return "El laboratorio ya está ocupado en ese horario por una reserva con superposición.";
   }
   return null;
 };
 
 const validarLaboratorioCapacidad = async (data) => {
+  if (!data.laboratorio) return null;
+
   const laboratorio = await Laboratorio.findById(data.laboratorio);
 
   if (!laboratorio) {
@@ -78,12 +86,13 @@ const validarRecursoItem = async (recurso) => {
   return null;
 };
 
-const validarRecursos = async (data, fechaHora) => {
+const validarRecursos = async (data, fechaHora, duracionClase) => {
   const detalles = [];
+  const inicioReal = new Date(fechaHora.getTime() - 60 * 60 * 1000);
+  const finReal = new Date(fechaHora.getTime() + (duracionClase + 30) * 60 * 1000);
 
-  if (!Array.isArray(data.recursos) || data.recursos.length === 0) {
-    detalles.push("El pedido debe contener al menos un recurso.");
-    return detalles;
+  if (!Array.isArray(data.recursos)) {
+    data.recursos = [];
   }
 
   for (const recurso of data.recursos) {
@@ -111,14 +120,15 @@ const validarRecursos = async (data, fechaHora) => {
       }
 
       const reservaOcupando = await Reserva.findOne({
-        fechaHora,
-        estado: { $in: ["Pendiente", "En Curso"] },
         "equiposReservados.equipoId": recurso.recursoId,
+        estado: { $in: ["Pendiente", "En Curso"] },
+        fechaInicioReal: { $lt: finReal },
+        fechaFinReal: { $gt: inicioReal },
       });
 
       if (reservaOcupando) {
         detalles.push(
-          `El equipo '${equipo.nombre}' ya está reservado en ese horario.`
+          `El equipo '${equipo.nombre}' ya está reservado y en uso durante ese período.`
         );
       }
 
@@ -167,22 +177,53 @@ const validarRecursos = async (data, fechaHora) => {
   return detalles;
 };
 
-const validarPedido = async (req, res, next) => {
+export const validarPedido = async (req, res, next) => {
   try {
     const data = req.body;
     const detalleProblemas = [];
+
+    // Validación de seguridad: un docente solo puede crear pedidos a su propio nombre
+    if (req.usuario && req.usuario.rol === "DOCENTE") {
+      if (data.docente && data.docente.toString() !== req.usuario.id.toString()) {
+        throw new Error("No estás autorizado para crear pedidos a nombre de otro docente.");
+      }
+    }
+
     const fechaHora = construirFechaHora(data);
 
-    validarFechaHora(fechaHora);
+    if (!fechaHora || isNaN(fechaHora.getTime())) {
+      return res.status(400).json({
+        error: "fechaHora inválida",
+        debug: data
+      });
+    }
+
+    // Guardar la fechaHora construida en req.body para que el controller la use
     req.body.fechaHora = fechaHora;
 
-    const conflicto = await validarConflictoLaboratorio(data, fechaHora, req.params.id);
+    // Eliminar las propiedades originales para evitar conflictos con validaciones
+    // posteriores (ej. Joi.xor() en pedidoSchema)
+    delete data.fecha;
+    delete data.hora;
+
+    if (!data.duracionClase || isNaN(Number(data.duracionClase))) {
+      throw new Error("El campo 'duracionClase' es obligatorio y debe ser un número en minutos.");
+    }
+    const duracionClaseNum = Number(data.duracionClase);
+    req.body.duracionClase = duracionClaseNum;
+
+    if (!data.laboratorio) {
+      data.laboratorio = null;
+      req.body.laboratorio = null;
+    }
+
+    const conflicto = await validarConflictoLaboratorio(data, fechaHora, req.params.id, duracionClaseNum);
     if (conflicto) detalleProblemas.push(conflicto);
 
     const problemaLaboratorio = await validarLaboratorioCapacidad(data);
     if (problemaLaboratorio) detalleProblemas.push(problemaLaboratorio);
 
-    const recursosProblemas = await validarRecursos(data, fechaHora);
+    const recursosProblemas = await validarRecursos(data, fechaHora, duracionClaseNum);
     detalleProblemas.push(...recursosProblemas);
 
     req.detalleProblemas = detalleProblemas;
@@ -190,8 +231,55 @@ const validarPedido = async (req, res, next) => {
 
     next();
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ 
+      error: "Error de validación", 
+      detalles: [{ message: error.message, path: ["general"] }],
+      errors: [{ message: error.message, path: ["general"] }]
+    });
   }
 };
 
-export default validarPedido;
+
+export const puedeEditarPedido = async (req, res, next) => {
+  try {
+    const { rol, id: usuarioId } = req.usuario;
+    const { id: pedidoId } = req.params;
+
+    const pedido = await Pedido.findById(pedidoId);
+
+    if (!pedido) {
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
+    }
+
+    // Solo pedidos pendientes
+    if (pedido.estado !== "Pendiente") {
+      return res.status(403).json({
+        error: "Solo se pueden editar pedidos pendientes"
+      });
+    }
+
+    // Admin y personal pueden editar cualquiera
+    if (rol === "ADMIN" || rol === "PERSONAL") {
+      return next();
+    }
+
+    // Docente solo sus propios pedidos
+    if (
+      rol === "DOCENTE" &&
+      pedido.docente.toString() === usuarioId
+    ) {
+      return next();
+    }
+
+    return res.status(403).json({
+      error: "No autorizado"
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      error: error.message
+    });
+  }
+};

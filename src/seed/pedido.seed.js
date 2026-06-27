@@ -15,9 +15,10 @@ export const seedPedidos = async () => {
     const equipo = await Equipo.findOne();
     const itemMaterial = await Item.findOne({ tipo: "material" });
     const itemReactivo = await Item.findOne({ tipo: "reactivo" });
+    const itemPipeta = await Item.findOne({ codigo: "MAT-003" });
+    const equipoDisp = await Equipo.findOne({ estado: "disponible" });
 
-    // Verificamos que existan las dependencias antes de intentar insertar
-    if (!docente || !laboratorio || !equipo || !itemMaterial || !itemReactivo) {
+    if (!docente || !laboratorio || !equipoDisp || !itemMaterial) {
       console.log("⚠️ No se pudieron sembrar los pedidos. Asegúrate de ejecutar primero los seeds de Usuarios, Laboratorios, Inventario y Equipos.");
       return;
     }
@@ -27,25 +28,28 @@ export const seedPedidos = async () => {
         materia: "Química General",
         docente: docente._id,
         fechaHora: new Date("2026-06-01T10:00:00"),
+        duracionClase: 120,
         laboratorio: laboratorio._id,
         alumnos: 20,
         estado: "Pendiente",
         recursos: [
-          { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: equipoDisp._id, tipoRecurso: "Equipo", cantidad: 1 },
           { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 10 },
-          { recursoId: itemReactivo._id, tipoRecurso: "Item", cantidad: 2 },
+          { recursoId: itemReactivo ? itemReactivo._id : itemMaterial._id, tipoRecurso: "Item", cantidad: 2 },
         ],
       },
       {
         materia: "Biología Celular",
         docente: docente._id,
         fechaHora: new Date("2026-06-02T12:00:00"),
+        duracionClase: 90,
         laboratorio: laboratorio._id,
         alumnos: 15,
         estado: "Aceptado",
         recursos: [
-          { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 2 },
-          { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 5 },
+          { recursoId: equipoDisp._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 15 },
+          { recursoId: itemPipeta ? itemPipeta._id : itemMaterial._id, tipoRecurso: "Item", cantidad: 5 },
         ],
         checklist: [
           { descripcion: "Acondicionar equipo reservado y verificar su funcionamiento.", tipo: "Logistica", estado: "Completada" },
@@ -56,11 +60,12 @@ export const seedPedidos = async () => {
         materia: "Física II",
         docente: docente._id,
         fechaHora: new Date("2026-06-03T14:00:00"),
+        duracionClase: 120,
         laboratorio: laboratorio._id,
         alumnos: 22,
         estado: "Rechazado",
         recursos: [
-          { recursoId: equipo._id, tipoRecurso: "Equipo", cantidad: 3 },
+          { recursoId: equipoDisp._id, tipoRecurso: "Equipo", cantidad: 3 },
           { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 8 },
         ],
         detalleProblemas: [
@@ -72,21 +77,44 @@ export const seedPedidos = async () => {
         materia: "Química Analítica",
         docente: docente._id,
         fechaHora: new Date("2026-06-05T08:00:00"),
+        duracionClase: 180,
         laboratorio: laboratorio._id,
-        alumnos: 30,
-        estado: "En Revisión",
+        alumnos: 18,
+        estado: "Finalizado",
         recursos: [
-          { recursoId: itemReactivo._id, tipoRecurso: "Item", cantidad: 15 },
-        ],
-        detalleProblemas: [
-          "Stock insuficiente del reactivo. Se requiere aprobación de compra."
+          { recursoId: equipoDisp._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: itemReactivo ? itemReactivo._id : itemMaterial._id, tipoRecurso: "Item", cantidad: 5 }
         ]
       },
+      {
+        materia: "Microbiología",
+        docente: docente._id,
+        fechaHora: new Date("2026-06-08T10:00:00"),
+        duracionClase: 120,
+        laboratorio: laboratorio._id,
+        alumnos: 25,
+        estado: "Aceptado", // "En Curso" no es un estado válido para Pedido, pero sí para la Reserva.
+        recursos: [
+          { recursoId: itemMaterial._id, tipoRecurso: "Item", cantidad: 12 },
+          { recursoId: itemPipeta ? itemPipeta._id : itemMaterial._id, tipoRecurso: "Item", cantidad: 10 }
+        ]
+      }
     ];
 
-    await Pedido.insertMany(pedidosPrueba);
-    console.log("✅ Pedidos de prueba sembrados correctamente.");
+    if (pedidosPrueba.length > 0) {
+      await Pedido.insertMany(pedidosPrueba);
+      console.log(`✅ Se insertaron exitosamente ${pedidosPrueba.length} pedidos de prueba.`);
+    }
   } catch (error) {
     console.error("❌ Error al sembrar los pedidos:", error);
+  }
+};
+
+export const rollbackPedidos = async () => {
+  try {
+    await Pedido.deleteMany({});
+    console.log("⏪ Rollback: Pedidos eliminados correctamente.");
+  } catch (error) {
+    console.error("❌ Error al revertir los pedidos:", error);
   }
 };

@@ -1,4 +1,5 @@
 import Actividad from "../models/actividad.model.js";
+import { getSugerenciasPorActividad } from "../services/sugerencias.service.js";
 
 // C: Crear una nueva actividad
 const createActividad = async (req, res) => {
@@ -85,10 +86,25 @@ const deleteActividad = async (req, res) => {
   }
 };
 
+// R: Obtener sugerencias de recursos para una actividad
+const getSugerencias = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sugerencias = await getSugerenciasPorActividad(id);
+    return res.status(200).json(sugerencias);
+  } catch (error) {
+    if (error.message === "Actividad no encontrada") {
+      return res.status(404).json({ error: error.message });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+};
+
 export {
   createActividad,
   getActividades,
   getActividadById,
   updateActividad,
-  deleteActividad
+  deleteActividad,
+  getSugerencias
 };

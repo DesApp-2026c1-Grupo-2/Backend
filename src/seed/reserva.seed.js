@@ -13,7 +13,7 @@ export const seedReservas = async () => {
 
     // Buscamos pedidos válidos para generarles una reserva asociada
     // Solo los pedidos "Aceptado" o "Finalizado" deberían tener una reserva real
-    const pedidos = await Pedido.find({ estado: { $in: ["Aceptado", "Finalizado", "En Curso"] } });
+    const pedidos = await Pedido.find({ estado: { $in: ["Aceptado", "Finalizado"] } });
 
     if (!pedidos || pedidos.length === 0) {
       console.log("⚠️ No se encontraron Pedidos válidos (Aceptados/Finalizados) para generar Reservas. Ejecuta primero pedido.seed.js.");
@@ -41,29 +41,52 @@ export const seedReservas = async () => {
               cantidad: l.cantidadDescontada
             }));
           } else {
-            // Intentamos buscar al menos un lote de este ítem para rellenar la relación
-            const lote = await Lote.findOne({ itemId: r.recursoId });
-            if (lote) {
-              lotesUsados.push({ loteId: lote._id, cantidad: r.cantidad });
+            // Realizamos la reserva física descontando stock real disponible 
+            let cantidadFaltante = r.cantidad;
+            const lotesFisicos = await Lote.find({ itemId: r.recursoId, cantidadDisponible: { $gt: 0 } });
+
+            for (const lote of lotesFisicos) {
+              if (cantidadFaltante <= 0) break;
+              
+              const aDescontar = Math.min(lote.cantidadDisponible, cantidadFaltante);
+              lotesUsados.push({ loteId: lote._id, cantidad: aDescontar });
+              cantidadFaltante -= aDescontar;
+              
+              // Consistencia estricta: Actualizamos el lote físico para simular que ya está prestado a la reserva
+              lote.cantidadDisponible -= aDescontar;
+              if (lote.cantidadDisponible === 0) lote.estado = 'descartado';
+              await lote.save();
             }
           }
 
+          const totalAsignado = lotesUsados.reduce((sum, act) => sum + act.cantidad, 0);
+
           materialesReservados.push({
             itemId: r.recursoId,
-            cantidadTotal: r.cantidad,
+            cantidadTotal: totalAsignado,
             lotesUsados: lotesUsados
           });
         }
       }
 
       // Calculamos el estado de la reserva coherente al estado del pedido
-      const estadoReserva = pedido.estado === "Finalizado" ? "Finalizada" : "Pendiente";
+      let estadoReserva = pedido.estado === "Finalizado" ? "Finalizada" : "Pendiente";
+      if (pedido.estado === "Aceptado" && pedido.materia === "Microbiología") {
+        estadoReserva = "En Curso"; // Simulamos que esta clase en particular ya arrancó
+      }
+
+      const duracionClase = pedido.duracionClase || 120;
+      const fechaInicioReal = new Date(new Date(pedido.fechaHora).getTime() - 60 * 60 * 1000);
+      const fechaFinReal = new Date(new Date(pedido.fechaHora).getTime() + (duracionClase + 30) * 60 * 1000);
 
       reservasPrueba.push({
         pedidoId: pedido._id,
         laboratorioId: pedido.laboratorio,
         docenteId: pedido.docente,
         fechaHora: pedido.fechaHora,
+        duracionClase,
+        fechaInicioReal,
+        fechaFinReal,
         estado: estadoReserva,
         equiposReservados,
         materialesReservados

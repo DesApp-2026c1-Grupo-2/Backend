@@ -10,6 +10,7 @@ describe('Reserva Model Validations', () => {
       laboratorioId: new mongoose.Types.ObjectId(),
       docenteId: new mongoose.Types.ObjectId(),
       fechaHora: new Date(),
+      duracionClase: 120,
     });
 
     const err = reserva.validateSync();
@@ -24,5 +25,6 @@ describe('Reserva Model Validations', () => {
     expect(err.errors.pedidoId).toBeDefined();
     expect(err.errors.laboratorioId).toBeDefined();
     expect(err.errors.docenteId).toBeDefined();
+    expect(err.errors.duracionClase).toBeDefined();
   });
 });

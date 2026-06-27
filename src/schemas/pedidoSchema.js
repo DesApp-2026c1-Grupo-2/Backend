@@ -41,19 +41,34 @@ const pedidoSchemaJoi = Joi.object({
     hora: Joi.string().optional().messages({
         "string.empty": "La hora es obligatoria",
     }),
-    laboratorio: Joi.string().hex().length(24).required().messages({
-        "string.length": "El ID del laboratorio debe ser válido (24 caracteres)",
-        "string.empty": "El laboratorio es obligatorio",
+    duracionClase: Joi.number().integer().min(1).required().messages({
+        "number.base": "La duración de la clase debe ser un número",
+        "number.integer": "La duración de la clase debe ser un número entero",
+        "number.min": "La duración de la clase debe ser de al menos 1 minuto",
+        "any.required": "La duración de la clase es obligatoria",
     }),
+    fechaInicioReal: Joi.any().forbidden().messages({
+        "any.unknown": "No se permite enviar fechaInicioReal, este valor se calcula automáticamente",
+    }),
+    fechaFinReal: Joi.any().forbidden().messages({
+        "any.unknown": "No se permite enviar fechaFinReal, este valor se calcula automáticamente",
+    }),
+    laboratorio: Joi.alternatives()
+        .try(
+            Joi.string().hex().length(24),
+            Joi.valid(null, "")
+        )
+        .optional()
+        .messages({
+            "string.length": "El ID del laboratorio debe ser válido (24 caracteres)",
+        }),
     alumnos: Joi.number().min(1).required().messages({
         "number.base": "La cantidad de alumnos debe ser un número",
         "number.min": "Debe haber al menos 1 alumno",
     }),
     estado: Joi.string().valid("Pendiente", "En Revisión", "Aceptado", "Rechazado", "Finalizado").default("Pendiente"),
-    recursos: Joi.array().items(recursoSchemaJoi).min(1).required().messages({
+    recursos: Joi.array().items(recursoSchemaJoi).min(0).default([]).messages({
         "array.base": "Los recursos deben ser un arreglo",
-        "array.min": "Un pedido debe tener al menos un recurso",
-        "any.required": "Los recursos son obligatorios"
     }),
     detalleProblemas: Joi.array().items(Joi.string()).default([]).messages({
         "array.base": "El detalle de problemas debe ser un arreglo de cadenas",

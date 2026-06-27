@@ -61,6 +61,12 @@ const updateUsuario = async (req, res) => {
     
     const datosActualizados = { ...req.body };
 
+    // Validar por seguridad que un usuario no escale sus propios privilegios accidentalmente
+    // (Si este endpoint es consumido por administradores, este chequeo debería omitirse
+    // o extraerse basándose en el rol del usuario que realiza la petición req.usuario.rol)
+    delete datosActualizados.rol;
+    delete datosActualizados.activo;
+
     if (datosActualizados.legajo !== undefined && String(datosActualizados.legajo).trim() === '') {
       datosActualizados.$unset = { legajo: 1 };
       delete datosActualizados.legajo;
@@ -131,6 +137,7 @@ const login = async (req, res) => {
         message: 'Credenciales inválidas'
       });
     }
+    
 
     // GENERAR JWT
     const token = jwt.sign(
@@ -162,11 +169,40 @@ const login = async (req, res) => {
   }
 };
 
+/**
+ * Verificar token de autenticación
+ */
+const verify = async (req, res) => {
+  try {
+
+    const usuario = await Usuario.findById(req.usuario.id);
+
+    if (!usuario) {
+      return res.status(401).json({
+        message: "Usuario no encontrado"
+      });
+    }
+
+    res.status(200).json({
+      ok: true,
+      usuario
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      message: "Error al verificar token"
+    });
+
+  }
+};
+
 export {
   getUsuarios,
   getUsuarioById,
   createUsuario,
   updateUsuario,
   deleteUsuario,
-  login
+  login,
+  verify,
 };

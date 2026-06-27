@@ -17,6 +17,8 @@ import recetaReactivoRouter from './routes/recetaReactivoRoutes.js';
 import actividadRouter from './routes/actividadRoutes.js';
 import produccionReactivoRouter from './routes/produccionReactivoRoutes.js';
 import reservaRoutes from './routes/reservaRoutes.js';
+import descarteRoutes from './routes/descarte.routes.js';
+import sugerenciaRecursoRouter from './routes/sugerenciaRecurso.routes.js';
 
 
 
@@ -37,6 +39,8 @@ app.use('/receta-reactivos', recetaReactivoRouter);
 app.use('/actividades', actividadRouter);
 app.use('/produccion-reactivos', produccionReactivoRouter);
 app.use('/reservas', reservaRoutes);
+app.use('/descartes', descarteRoutes);
+app.use('/sugerencias', sugerenciaRecursoRouter);
 
 app.get('/__backend-test__', (req, res) => res.json({ok: true}));
 const PORT = process.env.PORT || 3000;

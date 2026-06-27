@@ -3,16 +3,19 @@ import Lote from "../models/lote.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
 import { verificarConflictos } from "../services/pedidoConflictos.js";
+import Descarte from "../models/descarte.model.js";
 import Reserva from "../models/reserva.model.js";
+import { calcularVentana } from "../services/fechasReserva.js";
+import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
+import { registrarHistorial } from "../services/pedidoHistorial.js";
+import isEqual from "lodash.isequal";
 
 const getPedidos = async (req, res) => {
   try {
-
     const { id, rol } = req.usuario;
 
     let filtro = { activo: { $ne: false } };
 
-    // DOCENTE → solo sus pedidos
     if (rol === "DOCENTE") {
       filtro.docente = id;
     }
@@ -24,15 +27,35 @@ const getPedidos = async (req, res) => {
         path: "recursos.recursoId",
         select: "nombre tipo codigo esFijo estado",
       })
+      .populate({
+        path: "comentarios.usuario",
+        select: "nombre apellido rol",
+      })
       .sort({ fechaHora: -1 });
 
-    res.json(pedidos);
+    const pedidosConNotificacion = pedidos.map((p) => {
+      const ultimoComentario = p.comentarios?.[p.comentarios.length - 1];
 
-  } catch (error) {
+      const visto = p.vistoPor?.find(
+        (v) => v.usuario?.toString() === id
+      );
 
-    res.status(500).json({
-      error: error.message
+      const ultimoVisto = visto?.ultimoComentarioVisto;
+
+      const hayNoVistos =
+        ultimoComentario &&
+        (!ultimoVisto ||
+          new Date(ultimoComentario.createdAt) > new Date(ultimoVisto));
+
+      return {
+        ...p.toObject(),
+        tieneComentariosNuevos: hayNoVistos,
+      };
     });
+
+    res.json(pedidosConNotificacion);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };
 
@@ -41,13 +64,21 @@ const getPedidoById = async (req, res) => {
     const { id: userId, rol } = req.usuario;
     const { id } = req.params;
 
-    const pedido = await Pedido.findOne({ _id: id, activo: { $ne: false } })
+    const pedido = await Pedido.findById(id)
       .populate("docente", "nombre apellido email")
       .populate("laboratorio", "nombre tipo")
       .populate({
         path: "recursos.recursoId",
         select: "nombre tipo codigo esFijo estado",
-      });
+      })
+      .populate({
+        path: "comentarios.usuario",
+        select: "nombre apellido rol"
+      })
+      .populate({
+        path: "historial.usuario",
+        select: "nombre apellido rol"
+      });    
 
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
@@ -76,12 +107,12 @@ const aprobarPedido = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const pedido = await Pedido.findOne({ _id: id, activo: { $ne: false } });
+    const pedido = await Pedido.findById(id);
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
 
-    if (pedido.estado === "Aceptado") {
+    if (pedido.estado !== "Pendiente") {
       return res.status(400).json({ error: "El pedido ya fue aceptado previamente y sus recursos ya fueron descontados." });
     }
 
@@ -183,6 +214,20 @@ const aprobarPedido = async (req, res) => {
 
     // 3. Actualizar estado del pedido
     pedido.estado = "Aceptado";
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "APROBACION",
+      "Pedido aprobado",
+      {
+        estado: {
+          antes: "Pendiente",
+          despues: "Aceptado"
+        }
+      }
+    );
+
     pedido.checklist = checklist;
     const pedidoAprobado = await pedido.save();
 
@@ -211,6 +256,7 @@ const aprobarPedido = async (req, res) => {
       laboratorioId: pedidoAprobado.laboratorio,
       docenteId: pedidoAprobado.docente,
       fechaHora: pedidoAprobado.fechaHora,
+      duracionClase: pedidoAprobado.duracionClase,
       equiposReservados,
       materialesReservados
     });
@@ -233,7 +279,7 @@ const finalizarPedido = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const pedido = await Pedido.findOne({ _id: id, activo: { $ne: false } });
+    const pedido = await Pedido.findById(id);
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
@@ -242,7 +288,19 @@ const finalizarPedido = async (req, res) => {
       return res.status(400).json({ error: "El pedido debe estar en estado 'Aceptado' para poder finalizarse." });
     }
 
-    // 1. Proceder con la liberación de los equipos
+    // 1. Obtener descartes para calcular cuánto no debe regresar a inventario
+    const descartes = await Descarte.find({ pedidoId: id });
+    const lotesDescartados = {};
+    for (const d of descartes) {
+      if (d.tipo !== "equipo" && d.lotesAfectados) {
+        for (const la of d.lotesAfectados) {
+          const lId = la.loteId.toString();
+          lotesDescartados[lId] = (lotesDescartados[lId] || 0) + la.cantidad;
+        }
+      }
+    }
+
+    // 2. Proceder con la liberación de los equipos y materiales
     for (const r of pedido.recursos) {
       const ref = r.modeloRef || r.tipoRecurso;
       
@@ -252,16 +310,36 @@ const finalizarPedido = async (req, res) => {
         // Solo reponemos los ítems que NO son consumibles (ej. materiales como tubos de ensayo)
         if (item && item.esConsumible === false && r.lotesDescontados && r.lotesDescontados.length > 0) {
           for (const loteDesc of r.lotesDescontados) {
-            await Lote.findByIdAndUpdate(loteDesc.loteId, {
-              $inc: { cantidadDisponible: loteDesc.cantidadDescontada }
-            });
+            const loteIdStr = loteDesc.loteId.toString();
+            const cantidadDescartada = lotesDescartados[loteIdStr] || 0;
+            const aDevolver = Math.max(0, loteDesc.cantidadDescontada - cantidadDescartada);
+
+            if (aDevolver > 0) {
+              await Lote.findByIdAndUpdate(loteDesc.loteId, {
+                $inc: { cantidadDisponible: aDevolver }
+              });
+            }
           }
         }
       }
     }
 
-    // 2. Actualizar estado del pedido
+    // 3. Actualizar estado del pedido
     pedido.estado = "Finalizado";
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "FINALIZACION",
+      "Pedido finalizado",
+      {
+        estado: {
+          antes: "Aceptado",
+          despues: "Finalizado"
+        }
+      }
+    );
+
     const pedidoFinalizado = await pedido.save();
 
     // 3. Sincronizar el estado de la Reserva asociada
@@ -285,24 +363,42 @@ const finalizarPedido = async (req, res) => {
 
 const createPedido = async (req, res) => {
   try {
-    const { fecha, hora, ...resto } = req.body;
+    const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
     
-    // Combinar fecha y hora en un objeto Date
-    let fechaHora;
-    if (fecha && hora) {
-      fechaHora = new Date(`${fecha}T${hora}`);
-    } else if (req.body.fechaHora) {
-      fechaHora = req.body.fechaHora;
-    } else {
-      return res.status(400).json({ error: "fechaHora es obligatorio" });
+    // La fechaHora ya viene construida y validada desde el middleware validatePedidos
+    const fechaHora = req.body.fechaHora;
+
+    if (!validarAnticipacionPedido(fechaHora)) {
+      return res.status(400).json({
+        error: "No se pueden crear pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas"
+      });
     }
+
+    if (!resto.duracionClase) {
+      return res.status(400).json({ error: "duracionClase es obligatorio" });
+    }
+
+    if (!Array.isArray(resto.recursos)) {
+      resto.recursos = [];
+    }
+
+    const { inicio, fin } = calcularVentana(fechaHora, resto.duracionClase);
 
     const pedido = new Pedido({
       ...resto,
       fechaHora,
+      fechaInicioReal: inicio,
+      fechaFinReal: fin,
       detalleProblemas: req.detalleProblemas || [],
       estado: req.estadoCalculado || "Pendiente",
     });
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "CREACION",
+      "Pedido creado"
+    );    
 
     const nuevo = await pedido.save();
 
@@ -318,88 +414,377 @@ const createPedido = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
 const updatePedido = async (req, res) => {
   try {
     const { id } = req.params;
     const { fecha, hora, ...resto } = req.body;
-    
-    // Combinar fecha y hora si vienen separadas
+
     const actualizacion = { ...resto };
+
+    // =========================
+    // FECHA HORA
+    // =========================
     if (fecha && hora) {
       actualizacion.fechaHora = new Date(`${fecha}T${hora}`);
     } else if (req.body.fechaHora) {
-      actualizacion.fechaHora = req.body.fechaHora;
+      actualizacion.fechaHora = new Date(req.body.fechaHora);
     }
 
-    const pedido = await Pedido.findOneAndUpdate(
-      { _id: id, activo: { $ne: false } },
-      actualizacion,
-      { new: true, runValidators: true }
-    )
-      .populate("docente", "nombre apellido email")
-      .populate("laboratorio", "nombre tipo")
-      .populate({
-        path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado",
-      });
+    const pedidoDoc = await Pedido.findById(id);
 
-    if (!pedido) {
+    if (!pedidoDoc) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
 
-    res.json(pedido);
+    const pedidoExistente = pedidoDoc.toObject();
+
+    // =========================
+    // VALIDACIÓN FECHA
+    // =========================
+    const fechaBase =
+      actualizacion.fechaHora || pedidoExistente.fechaHora;
+
+    if (fechaBase && !validarAnticipacionPedido(new Date(fechaBase))) {
+      return res.status(400).json({
+        error:
+          "No se pueden actualizar pedidos a menos de 2 horas o en fechas pasadas"
+      });
+    }
+
+    // =========================
+    // RECALCULAR HORARIO
+    // =========================
+    const duracionBase =
+      actualizacion.duracionClase || pedidoExistente.duracionClase;
+
+    if (fechaBase && duracionBase) {
+      const { inicio, fin } = calcularVentana(
+        new Date(fechaBase),
+        duracionBase
+      );
+
+      actualizacion.fechaInicioReal = inicio;
+      actualizacion.fechaFinReal = fin;
+    }
+
+    // =========================
+    // DETECCIÓN DE CAMBIOS
+    // =========================
+    const cambios = {};
+
+    const compararSimple = [
+      "materia",
+      "alumnos",
+      "duracionClase",
+      "fechaHora",
+      "laboratorio"
+    ];
+
+    const normalize = (v) => {
+      if (!v) return null;
+
+      if (v instanceof Date) return v.toISOString();
+
+      if (typeof v === "object" && v._id) return v._id.toString();
+
+      return JSON.stringify(v);
+    };
+
+    for (const campo of compararSimple) {
+      if (actualizacion[campo] === undefined) continue;
+
+      const antes = pedidoExistente[campo];
+      const despues = actualizacion[campo];
+
+      if (normalize(antes) !== normalize(despues)) {
+        cambios[campo] = {
+          antes,
+          despues
+        };
+      }
+    }    
+
+    // =========================
+    // HORARIO REAL
+    // =========================
+    if (
+      actualizacion.fechaInicioReal &&
+      actualizacion.fechaFinReal
+    ) {
+      const antes = {
+        inicio: pedidoExistente.fechaInicioReal,
+        fin: pedidoExistente.fechaFinReal
+      };
+
+      const despues = {
+        inicio: actualizacion.fechaInicioReal,
+        fin: actualizacion.fechaFinReal
+      };
+
+      if (
+        new Date(antes.inicio).getTime() !== new Date(despues.inicio).getTime() ||
+        new Date(antes.fin).getTime() !== new Date(despues.fin).getTime()
+      ) {
+        cambios.horario = { antes, despues };
+      }
+    }
+
+    // =========================
+    // RECURSOS (IMPORTANTE)
+    // =========================
+    if (actualizacion.recursos) {
+      const normalizar = (r) => ({
+        recursoId: r.recursoId?.toString?.() || r.recursoId,
+        tipoRecurso: r.tipoRecurso,
+        cantidad: r.cantidad
+      });
+
+      const antesRecursos = (pedidoExistente.recursos || []).map(normalizar);
+      const despuesRecursos = (actualizacion.recursos || []).map(normalizar);
+
+      if (
+        JSON.stringify(antesRecursos) !== JSON.stringify(despuesRecursos)
+      ) {
+        cambios.recursos = {
+          antes: antesRecursos,
+          despues: despuesRecursos
+        };
+      }
+    }
+
+    // =========================
+    // HISTORIAL
+    // =========================
+    if (Object.keys(cambios).length > 0) {
+      registrarHistorial(
+        pedidoDoc,
+        req.usuario.id,
+        "MODIFICACION",
+        "Se modificó el pedido",
+        cambios
+      );
+    }
+
+    // =========================
+    // APLICAR CAMBIOS
+    // =========================
+    Object.assign(pedidoDoc, actualizacion);
+
+    await pedidoDoc.save();
+
+    await pedidoDoc.populate("docente", "nombre apellido email");
+    await pedidoDoc.populate("laboratorio", "nombre tipo");
+    await pedidoDoc.populate({
+      path: "recursos.recursoId",
+      select: "nombre tipo codigo esFijo estado"
+    });
+
+    res.json(pedidoDoc);
+
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 };
+
 const updateEstado = async (req, res) => {
   try {
     const { id } = req.params;
     const { estado } = req.body;
 
-    if (!["Pendiente", "En Revisión", "Aceptado", "Rechazado", "Finalizado"].includes(estado)) {
-      return res.status(400).json({ error: "Estado no válido" });
+    if (
+      ![
+        "Pendiente",
+        "En Revisión",
+        "Aceptado",
+        "Rechazado",
+        "Finalizado"
+      ].includes(estado)
+    ) {
+      return res.status(400).json({
+        error: "Estado no válido"
+      });
     }
 
-    const pedido = await Pedido.findOneAndUpdate(
-      { _id: id, activo: { $ne: false } },
-      { estado },
-      { new: true, runValidators: true }
-    )
-      .populate("docente", "nombre apellido email")
-      .populate("laboratorio", "nombre tipo")
-      .populate({
-        path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado",
-      });
+    const pedido = await Pedido.findById(id);
 
     if (!pedido) {
-      return res.status(404).json({ error: "Pedido no encontrado" });
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
     }
 
+    if (pedido.estado === estado) {
+      return res.status(400).json({
+        error: "El pedido ya tiene ese estado"
+      });
+    }    
+
+    const estadoAnterior = pedido.estado;
+
+    pedido.estado = estado;
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "CAMBIO_ESTADO",
+      `Estado cambiado de "${estadoAnterior}" a "${estado}"`,
+      {
+        estado: {
+          antes: estadoAnterior,
+          despues: estado
+        }
+      }
+    );
+
+    await pedido.save();
+
+    await pedido.populate([
+      {
+        path: "docente",
+        select: "nombre apellido email"
+      },
+      {
+        path: "laboratorio",
+        select: "nombre tipo"
+      },
+      {
+        path: "recursos.recursoId",
+        select: "nombre tipo codigo esFijo estado"
+      }
+    ]);
+
     res.json(pedido);
+
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({
+      error: error.message
+    });
   }
 };
+
 const borrarPedidoLogico = async (req, res) => {
   try {
     const { id } = req.params;
-    const pedido = await Pedido.findOneAndUpdate(
-      { _id: id, activo: { $ne: false } },
-      { activo: false },
-      { new: true }
+
+    const pedido = await Pedido.findById(id);
+
+    if (!pedido) {
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
+    }
+
+    pedido.activo = false;
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "ELIMINACION",
+      "Pedido eliminado lógicamente"
     );
+
+    await pedido.save();
+
+    res.json({
+      message: "Pedido eliminado lógicamente",
+      pedido
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+};
+
+
+const agregarComentario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { mensaje } = req.body;
+
+    const pedido = await Pedido.findById(id);
+
+    if (!pedido) {
+      return res.status(404).json({
+        error: "Pedido no encontrado"
+      });
+    }
+
+    pedido.comentarios.push({
+      usuario: req.usuario.id,
+      mensaje
+    });
+
+    registrarHistorial(
+      pedido,
+      req.usuario.id,
+      "COMENTARIO",
+      "Se agregó un comentario"
+    );    
+
+    await pedido.save();
+
+    // Volvemos a buscar el pedido ya guardado
+    const pedidoActualizado = await Pedido.findById(id)
+      .populate({
+        path: "comentarios.usuario",
+        select: "nombre apellido rol"
+      });
+
+    const comentarioNuevo =
+      pedidoActualizado.comentarios[
+        pedidoActualizado.comentarios.length - 1
+      ];
+
+    res.status(201).json(comentarioNuevo);
+
+  } catch (error) {
+    res.status(500).json({
+      error: error.message
+    });
+  }
+};
+
+const marcarComentariosVistos = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.usuario.id;
+
+    const ahora = new Date();
+
+    const pedido = await Pedido.findById(id);
 
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
     }
 
-    res.json({ message: "Pedido marcado como eliminado (borrado lógico)", pedido });
+    const idx = pedido.vistoPor.findIndex(
+      v => v.usuario.toString() === userId
+    );
+
+    if (idx >= 0) {
+      pedido.vistoPor[idx].ultimoComentarioVisto = ahora;
+    } else {
+      pedido.vistoPor.push({
+        usuario: userId,
+        ultimoComentarioVisto: ahora
+      });
+    }
+
+    await Pedido.updateOne(
+      { _id: id },
+      { $set: { vistoPor: pedido.vistoPor } }
+    );
+
+    res.json({ ok: true });
+
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
 };
+
 export {
   getPedidos,
   getPedidoById,
@@ -409,4 +794,6 @@ export {
   aprobarPedido,
   finalizarPedido,
   borrarPedidoLogico,
+  agregarComentario,
+  marcarComentariosVistos,
 };

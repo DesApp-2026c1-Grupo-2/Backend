@@ -9,6 +9,9 @@ const reservaSchema = new mongoose.Schema({
   laboratorioId: { type: mongoose.Schema.Types.ObjectId, ref: 'Laboratorio', required: true },
   docenteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true },
   fechaHora: { type: Date, required: true },
+  duracionClase: { type: Number, required: true },
+  fechaInicioReal: { type: Date },
+  fechaFinReal: { type: Date },
   estado: { 
     type: String, 
     enum: ['Pendiente', 'En Curso', 'Finalizada', 'Cancelada'], 
@@ -26,5 +29,12 @@ const reservaSchema = new mongoose.Schema({
     }]
   }]
 }, { timestamps: true });
+
+reservaSchema.pre('save', function() {
+  if (this.fechaHora && typeof this.duracionClase === 'number') {
+    this.fechaInicioReal = new Date(this.fechaHora.getTime() - 60 * 60 * 1000);
+    this.fechaFinReal = new Date(this.fechaHora.getTime() + (this.duracionClase + 30) * 60 * 1000);
+  }
+});
 
 export default mongoose.models.Reserva || mongoose.model('Reserva', reservaSchema);

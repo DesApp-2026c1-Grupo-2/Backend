@@ -2,16 +2,60 @@ services:
   mongodb:
     image: mongo:4.4
     container_name: mongo_db_mongoose_2
+    # Replica set de un nodo CON auth: habilita transacciones multi-documento
+    # (anti-write-skew §5 y consumo transaccional §7). MongoDB exige keyFile
+    # cuando se combina auth + replica set, así que el entrypoint genera uno
+    # (persistido en el volumen mongo_config) antes de arrancar mongod.
+    # docs/stock-disponibilidad-temporal.md §5.1.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        KEYFILE=/data/configdb/keyfile
+        if [ ! -f "$$KEYFILE" ]; then
+          openssl rand -base64 756 > "$$KEYFILE"
+        fi
+        chmod 400 "$$KEYFILE"
+        chown 999:999 "$$KEYFILE"
+        exec docker-entrypoint.sh mongod --replSet rs0 --keyFile "$$KEYFILE" --bind_ip_all
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
     ports:
       - "27018:27017"
     volumes:
       - mongo_data:/data/db
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: admin123
+      - mongo_config:/data/configdb
     restart: unless-stopped
-    networks: 
+    networks:
       - app-net
+
+  # Init de un solo uso: inicia el replica set si aún no lo está (idempotente).
+  
+  mongo-init:
+    image: mongo:4.4
+    container_name: mongo_replset_init_2
+    depends_on:
+      - mongodb
+    networks:
+      - app-net
+    restart: "no"
+    entrypoint:
+      - bash
+      - -c
+      - |
+        for i in $$(seq 1 30); do
+          mongo --host mongodb:27017 -u admin -p admin123 --authenticationDatabase admin --quiet --eval 'quit()' && break
+          echo "esperando a mongod... ($$i)"; sleep 2
+        done
+        mongo --host mongodb:27017 -u admin -p admin123 --authenticationDatabase admin --quiet --eval '
+          if (rs.status().ok === 1) {
+            print("replica set ya iniciado");
+          } else {
+            rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongodb:27017" }] });
+            print("replica set iniciado");
+          }'
 
   mongo-express:
     image: mongo-express
@@ -19,19 +63,19 @@ services:
     ports:
       - "8082:8081"
     environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
-      ME_CONFIG_MONGODB_ADMINPASSWORD: admin123
-      ME_CONFIG_MONGODB_URL: mongodb://admin:admin123@mongodb:27017/
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin123@mongodb:27017/?authSource=admin&directConnection=true
       ME_CONFIG_BASICAUTH: 'false'
     depends_on:
       - mongodb
+      - mongo-init
     restart: unless-stopped
-    networks: 
+    networks:
       - app-net
 
 
 volumes:
   mongo_data:
+  mongo_config:
 
 networks:
   app-net:

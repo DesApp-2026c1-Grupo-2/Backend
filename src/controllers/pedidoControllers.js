@@ -1,11 +1,14 @@
 import Pedido from "../models/pedido.model.js";
-import Lote from "../models/lote.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
 import { verificarConflictos } from "../services/pedidoConflictos.js";
-import Descarte from "../models/descarte.model.js";
 import Reserva from "../models/reserva.model.js";
 import { calcularVentana } from "../services/fechasReserva.js";
+import {
+  aprobarConReserva,
+  asignarLotesFIFO,
+  ConflictoStockError,
+} from "../services/aprobacionReserva.js";
 import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
 import { registrarHistorial } from "../services/pedidoHistorial.js";
 import isEqual from "lodash.isequal";
@@ -130,22 +133,29 @@ const aprobarPedido = async (req, res) => {
       });
     }
 
-    // 2. Proceder con el descuento de stock en Lotes y reserva de Equipos
+    // 2. Armar checklist y los materiales/equipos de la reserva.
+    //    NUEVO MODELO (docs/stock-disponibilidad-temporal.md §3): la aprobación
+    //    NO decrementa cantidadDisponible. Para materiales solo se asignan
+    //    punteros FIFO de lotes (trazabilidad para descartes) sin tocar stock.
+    //    El decremento físico de consumibles ocurre al pasar a "En Curso" (§7).
     const checklist = [];
     let requiereCarrito = false;
+    const equiposReservados = [];
+    const materialesReservados = [];
 
     for (const r of pedido.recursos) {
       const ref = r.modeloRef || r.tipoRecurso;
-      
+
       if (ref === "Equipo") {
         requiereCarrito = true;
         checklist.push({
           descripcion: "Acondicionar equipo reservado y verificar su funcionamiento.",
           tipo: "Logistica"
         });
+        equiposReservados.push({ equipoId: r.recursoId });
       } else if (ref === "Item") {
         const item = await Item.findById(r.recursoId);
-        
+
         if (item) {
           requiereCarrito = true;
           if (item.tipo === "reactivo") {
@@ -168,40 +178,13 @@ const aprobarPedido = async (req, res) => {
           }
         }
 
-        let cantidadRestante = r.cantidad;
-        
-        // Inicializamos el arreglo para guardar el registro de qué lotes tocamos
-        r.lotesDescontados = [];
-
-        // Estrategia FIFO: traer lotes disponibles ordenados por Vencimiento y Creación
-        const lotes = await Lote.find({ 
-          itemId: r.recursoId, 
-          estado: "disponible",
-          cantidadDisponible: { $gt: 0 } 
-        }).sort({ fechaVencimiento: 1, fechaCreacion: 1 });
-
-        for (const lote of lotes) {
-          if (cantidadRestante <= 0) break; // Ya descontamos todo lo necesario
-
-          let descontado = 0;
-          if (lote.cantidadDisponible >= cantidadRestante) {
-            descontado = cantidadRestante;
-            lote.cantidadDisponible -= cantidadRestante;
-            cantidadRestante = 0;
-          } else {
-            // El lote no alcanza a cubrir toda la cantidad, lo vaciamos y seguimos con el próximo
-            descontado = lote.cantidadDisponible;
-            cantidadRestante -= lote.cantidadDisponible;
-            lote.cantidadDisponible = 0;
-          }
-          
-          r.lotesDescontados.push({
-            loteId: lote._id,
-            cantidadDescontada: descontado
-          });
-
-          await lote.save();
-        }
+        // Punteros FIFO sin decrementar stock (invariante §3.1).
+        const lotesUsados = await asignarLotesFIFO(r.recursoId, r.cantidad);
+        materialesReservados.push({
+          itemId: r.recursoId,
+          cantidadTotal: r.cantidad,
+          lotesUsados,
+        });
       }
     }
 
@@ -212,7 +195,43 @@ const aprobarPedido = async (req, res) => {
       });
     }
 
-    // 3. Actualizar estado del pedido
+    // 3. Crear la Reserva con gate de disponibilidad anti-write-skew (§5).
+    //    Se hace ANTES de mutar el pedido: si no alcanza el stock, el pedido
+    //    queda intacto en "Pendiente".
+    const { inicio, fin } = calcularVentana(pedido.fechaHora, pedido.duracionClase);
+    let nuevaReserva;
+    try {
+      nuevaReserva = await aprobarConReserva({
+        datosReserva: {
+          pedidoId: pedido._id,
+          laboratorioId: pedido.laboratorio,
+          docenteId: pedido.docente,
+          fechaHora: pedido.fechaHora,
+          duracionClase: pedido.duracionClase,
+          equiposReservados,
+          materialesReservados,
+        },
+        materiales: materialesReservados,
+        inicio,
+        fin,
+      });
+    } catch (error) {
+      if (error instanceof ConflictoStockError) {
+        return res.status(400).json({
+          error: "El pedido tiene conflictos",
+          conflictos: [
+            {
+              tipo: "stock_insuficiente",
+              severidad: "alta",
+              mensaje: error.message,
+            },
+          ],
+        });
+      }
+      throw error;
+    }
+
+    // 4. Actualizar estado del pedido (reserva ya creada con éxito).
     pedido.estado = "Aceptado";
 
     registrarHistorial(
@@ -231,37 +250,6 @@ const aprobarPedido = async (req, res) => {
     pedido.checklist = checklist;
     const pedidoAprobado = await pedido.save();
 
-    // 4. Crear la Reserva asociada de forma automática
-    const equiposReservados = [];
-    const materialesReservados = [];
-
-    for (const r of pedido.recursos) {
-      const ref = r.modeloRef || r.tipoRecurso;
-      if (ref === "Equipo") {
-        equiposReservados.push({ equipoId: r.recursoId });
-      } else if (ref === "Item") {
-        materialesReservados.push({
-          itemId: r.recursoId,
-          cantidadTotal: r.cantidad,
-          lotesUsados: r.lotesDescontados ? r.lotesDescontados.map(l => ({
-            loteId: l.loteId,
-            cantidad: l.cantidadDescontada
-          })) : []
-        });
-      }
-    }
-
-    const nuevaReserva = new Reserva({
-      pedidoId: pedidoAprobado._id,
-      laboratorioId: pedidoAprobado.laboratorio,
-      docenteId: pedidoAprobado.docente,
-      fechaHora: pedidoAprobado.fechaHora,
-      duracionClase: pedidoAprobado.duracionClase,
-      equiposReservados,
-      materialesReservados
-    });
-    await nuevaReserva.save();
-
     // Poblamos para devolver el objeto completo al frontend
     await pedidoAprobado.populate([
       { path: "docente", select: "nombre apellido email" },
@@ -269,7 +257,7 @@ const aprobarPedido = async (req, res) => {
       { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" }
     ]);
 
-    res.json({ message: "Pedido aprobado. Stock descontado y equipos reservados correctamente.", pedido: pedidoAprobado });
+    res.json({ message: "Pedido aprobado. Reserva creada y disponibilidad confirmada.", pedido: pedidoAprobado, reservaId: nuevaReserva._id });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -288,43 +276,14 @@ const finalizarPedido = async (req, res) => {
       return res.status(400).json({ error: "El pedido debe estar en estado 'Aceptado' para poder finalizarse." });
     }
 
-    // 1. Obtener descartes para calcular cuánto no debe regresar a inventario
-    const descartes = await Descarte.find({ pedidoId: id });
-    const lotesDescartados = {};
-    for (const d of descartes) {
-      if (d.tipo !== "equipo" && d.lotesAfectados) {
-        for (const la of d.lotesAfectados) {
-          const lId = la.loteId.toString();
-          lotesDescartados[lId] = (lotesDescartados[lId] || 0) + la.cantidad;
-        }
-      }
-    }
+    // NUEVO MODELO (docs/stock-disponibilidad-temporal.md §10): no hay devolución
+    // de stock en la finalización.
+    //  - Reutilizables: nunca se decrementó cantidadDisponible (son puramente
+    //    temporales), así que no se repone nada.
+    //  - Consumibles: el stock se consumió al ejecutarse y no vuelve.
+    // La finalización solo cierra el pedido y sincroniza la reserva.
 
-    // 2. Proceder con la liberación de los equipos y materiales
-    for (const r of pedido.recursos) {
-      const ref = r.modeloRef || r.tipoRecurso;
-      
-      if (ref === "Equipo") {
-      } else if (ref === "Item") {
-        const item = await Item.findById(r.recursoId);
-        // Solo reponemos los ítems que NO son consumibles (ej. materiales como tubos de ensayo)
-        if (item && item.esConsumible === false && r.lotesDescontados && r.lotesDescontados.length > 0) {
-          for (const loteDesc of r.lotesDescontados) {
-            const loteIdStr = loteDesc.loteId.toString();
-            const cantidadDescartada = lotesDescartados[loteIdStr] || 0;
-            const aDevolver = Math.max(0, loteDesc.cantidadDescontada - cantidadDescartada);
-
-            if (aDevolver > 0) {
-              await Lote.findByIdAndUpdate(loteDesc.loteId, {
-                $inc: { cantidadDisponible: aDevolver }
-              });
-            }
-          }
-        }
-      }
-    }
-
-    // 3. Actualizar estado del pedido
+    // Actualizar estado del pedido
     pedido.estado = "Finalizado";
 
     registrarHistorial(

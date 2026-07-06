@@ -2,8 +2,8 @@ import Pedido from "../models/pedido.model.js";
 import Laboratorio from "../models/laboratorio.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
-import Lote from "../models/lote.model.js";
 import Reserva from "../models/reserva.model.js";
+import { calcularDisponibilidad } from "../services/disponibilidad.js";
 
 const construirFechaHora = (data) => {
   if (data.fecha && data.hora) {
@@ -59,30 +59,6 @@ const validarLaboratorioCapacidad = async (data) => {
     return `El laboratorio no tiene capacidad suficiente (Máximo: ${laboratorio.capacidad} alumnos).`;
   }
 
-  return null;
-};
-
-const validarRecursoEquipo = async (recurso) => {
-  const equipo = await Equipo.findById(recurso.recursoId);
-  if (!equipo) {
-    return "Uno de los equipos solicitados no existe.";
-  }
-  if (equipo.estado !== "disponible") {
-    return `El equipo '${equipo.nombre}' no está disponible (Estado actual: ${equipo.estado}).`;
-  }
-  return null;
-};
-
-const validarRecursoItem = async (recurso) => {
-  const item = await Item.findById(recurso.recursoId);
-  if (!item) {
-    return "Uno de los ítems solicitados no existe.";
-  }
-
-  const stockDisponible = await Lote.calcularStockDisponible(recurso.recursoId);
-  if (stockDisponible < recurso.cantidad) {
-    return `Stock insuficiente de '${item.nombre}'. Solicitado: ${recurso.cantidad}, Disponible: ${stockDisponible}.`;
-  }
   return null;
 };
 
@@ -155,10 +131,15 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
         continue;
       }
 
-      const stockDisponible =
-        await Lote.calcularStockDisponible(
-          recurso.recursoId
-        );
+      // Disponibilidad por rango horario (docs/stock-disponibilidad-temporal.md §3),
+      // consistente con verificarConflictos y con el gate de aprobación. Usar el
+      // stock nominal (Lote.calcularStockDisponible) ignoraba las reservas que
+      // solapan la ventana del pedido.
+      const stockDisponible = await calcularDisponibilidad(
+        recurso.recursoId,
+        inicioReal,
+        finReal
+      );
 
       if (stockDisponible < recurso.cantidad) {
         detalles.push(

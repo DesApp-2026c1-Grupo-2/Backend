@@ -23,13 +23,20 @@ vi.mock('../../../models/equipo.model.js', () => {
   return { default: MockEquipo };
 });
 
+// Mock del servicio de estadísticas (el controlador solo orquesta)
+vi.mock('../../../services/estadisticasEquipo.js', () => ({
+  obtenerEstadisticasUso: vi.fn(),
+}));
+
 import Equipo from '../../../models/equipo.model.js';
+import { obtenerEstadisticasUso } from '../../../services/estadisticasEquipo.js';
 import {
   createEquipo,
   getEquipos,
   getEquipoById,
   updateEquipo,
-  deleteEquipo
+  deleteEquipo,
+  getEstadisticasUso
 } from '../../../controllers/equipoControllers.js';
 
 const mockReq = (overrides = {}) => ({
@@ -237,6 +244,46 @@ describe('equipoControllers', () => {
       await deleteEquipo(req, res);
 
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+  });
+
+  describe('getEstadisticasUso', () => {
+    it('debe delegar en el servicio con los params validados y responder 200', async () => {
+      const fecha = new Date('2026-07-05T00:00:00.000Z');
+      const req = mockReq({
+        query: { periodo: 'semana', fecha, page: 1, limit: 10 }
+      });
+      const res = mockRes();
+      const resultado = {
+        periodo: 'semana',
+        desde: fecha,
+        hasta: fecha,
+        paginacion: { page: 1, limit: 10, total: 1, totalPaginas: 1 },
+        equipos: [{ equipoId: 'abc', usos: 20, nombre: 'Microscopio' }]
+      };
+      obtenerEstadisticasUso.mockResolvedValueOnce(resultado);
+
+      await getEstadisticasUso(req, res);
+
+      expect(obtenerEstadisticasUso).toHaveBeenCalledWith({
+        periodo: 'semana',
+        fecha,
+        laboratorioId: undefined,
+        equipoId: undefined,
+        page: 1,
+        limit: 10
+      });
+      expect(res.json).toHaveBeenCalledWith(resultado);
+    });
+
+    it('debe retornar 500 si el servicio falla', async () => {
+      const req = mockReq({ query: { periodo: 'mes', page: 1, limit: 10 } });
+      const res = mockRes();
+      obtenerEstadisticasUso.mockRejectedValueOnce(new Error('DB Down'));
+
+      await getEstadisticasUso(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
     });
   });
 });

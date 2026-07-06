@@ -72,7 +72,6 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
   }
 
   for (const recurso of data.recursos) {
-
     if (
       !recurso.tipoRecurso ||
       !recurso.recursoId ||
@@ -85,9 +84,7 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
     }
 
     if (recurso.tipoRecurso === "Equipo") {
-
       const equipo = await Equipo.findById(recurso.recursoId);
-
       if (!equipo) {
         detalles.push(
           "Uno de los equipos solicitados no existe."
@@ -121,9 +118,7 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
     }
 
     if (recurso.tipoRecurso === "Item") {
-
       const item = await Item.findById(recurso.recursoId);
-
       if (!item) {
         detalles.push(
           "Uno de los ítems solicitados no existe."
@@ -165,7 +160,6 @@ export const validarPedido = async (req, res, next) => {
     const data = req.body;
     const detalleProblemas = [];
 
-    // Validación de seguridad: un docente solo puede crear pedidos a su propio nombre
     if (req.usuario && req.usuario.rol === "DOCENTE") {
       if (data.docente && data.docente.toString() !== req.usuario.id.toString()) {
         throw new Error("No estás autorizado para crear pedidos a nombre de otro docente.");
@@ -181,11 +175,8 @@ export const validarPedido = async (req, res, next) => {
       });
     }
 
-    // Guardar la fechaHora construida en req.body para que el controller la use
     req.body.fechaHora = fechaHora;
 
-    // Eliminar las propiedades originales para evitar conflictos con validaciones
-    // posteriores (ej. Joi.xor() en pedidoSchema)
     delete data.fecha;
     delete data.hora;
 
@@ -210,7 +201,9 @@ export const validarPedido = async (req, res, next) => {
     detalleProblemas.push(...recursosProblemas);
 
     req.detalleProblemas = detalleProblemas;
-    req.estadoCalculado = detalleProblemas.length > 0 ? "En Revisión" : "Pendiente";
+    
+    // CAMBIO CLAVE: Ya no devolvemos "En Revisión". Ahora es siempre "Pendiente".
+    req.estadoCalculado = "Pendiente";
 
     next();
   } catch (error) {
@@ -221,7 +214,6 @@ export const validarPedido = async (req, res, next) => {
     });
   }
 };
-
 
 export const puedeEditarPedido = async (req, res, next) => {
   try {
@@ -236,19 +228,16 @@ export const puedeEditarPedido = async (req, res, next) => {
       });
     }
 
-    // Solo pedidos pendientes
     if (pedido.estado !== "Pendiente") {
       return res.status(403).json({
         error: "Solo se pueden editar pedidos pendientes"
       });
     }
 
-    // Admin y personal pueden editar cualquiera
     if (rol === "ADMIN" || rol === "PERSONAL") {
       return next();
     }
 
-    // Docente solo sus propios pedidos
     if (
       rol === "DOCENTE" &&
       pedido.docente.toString() === usuarioId

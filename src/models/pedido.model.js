@@ -36,6 +36,7 @@ const comentarioSchema = new mongoose.Schema({
   timestamps: true,
   _id: true
 });
+
 const tareaSchema = new mongoose.Schema({
   descripcion: {
     type: String,
@@ -58,7 +59,6 @@ const historialSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Usuario"
   },
-
   accion: {
     type: String,
     enum: [
@@ -72,14 +72,11 @@ const historialSchema = new mongoose.Schema({
       "ELIMINACION"
     ]
   },
-
   descripcion: String,
-
   cambios: {
     type: mongoose.Schema.Types.Mixed,
     default: {}
   }
-
 }, {
   timestamps: true
 });
@@ -120,7 +117,7 @@ const pedidoSchema = new mongoose.Schema({
   },
   estado: {
     type: String,
-    enum: ["Pendiente", "En Revisión", "Aceptado", "Rechazado", "Finalizado"],
+    enum: ["Pendiente", "Aceptado", "Rechazado", "Finalizado", "Cancelado", "Expirado"],
     default: "Pendiente",
   },
   recursos: [recursoSchema],
@@ -157,20 +154,15 @@ const pedidoSchema = new mongoose.Schema({
   strict: true,
   toJSON: {
     transform: (_, ret) => {
-      ret.id = ret._id.toString(); //porque? mongo es objectId, no string, y si lo necesito como string lo convierto en el controlador, no acá
+      ret.id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
     },
   },
 });
 
-// Índices para optimizar queries frecuentes
 pedidoSchema.index({ docente: 1, estado: 1 });
 pedidoSchema.index({ laboratorio: 1 });
 pedidoSchema.index({ fechaHora: -1 });
-
-// Validación pre-save
-// (antes exigía al menos un recurso; ahora se permite un pedido sin
-// recursos, por ejemplo para una clase teórica que no necesita ninguno)
 
 export default mongoose.models.Pedido || mongoose.model("Pedido", pedidoSchema);

@@ -46,7 +46,7 @@ describe('Pedido Model Validations', () => {
       duracionClase: 90,
       laboratorio: new mongoose.Types.ObjectId(),
       alumnos: 15,
-      estado: 'estado_inexistente' // Solo permite: "Pendiente", "En Revisión", "Aceptado", "Rechazado", "Finalizado"
+      estado: 'estado_inexistente' // CAMBIO EN COMENTARIO: Solo permite: "Pendiente", "Aceptado", "Rechazado", "Finalizado", "Cancelado", "Expirado"
     });
     const err = pedido.validateSync();
     expect(err.errors.estado.name).toBe('ValidatorError');

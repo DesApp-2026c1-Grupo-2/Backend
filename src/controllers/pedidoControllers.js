@@ -314,13 +314,11 @@ const finalizarPedido = async (req, res) => {
 
     const pedidoFinalizado = await pedido.save();
 
-    // 3. Sincronizar el estado de la Reserva asociada
     await Reserva.findOneAndUpdate(
       { pedidoId: pedido._id },
       { estado: 'Finalizada' }
     );
 
-    // Poblamos para devolver el objeto completo al frontend
     await pedidoFinalizado.populate([
       { path: "docente", select: "nombre apellido email" },
       { path: "laboratorio", select: "nombre tipo" },
@@ -379,7 +377,6 @@ const createPedido = async (req, res) => {
 
     const nuevo = await pedido.save();
 
-    // Poblamos el pedido recién creado antes de devolverlo
     await nuevo.populate([
       { path: "docente", select: "nombre apellido email" },
       { path: "laboratorio", select: "nombre tipo" },
@@ -399,9 +396,6 @@ const updatePedido = async (req, res) => {
 
     const actualizacion = { ...resto };
 
-    // =========================
-    // FECHA HORA
-    // =========================
     if (fecha && hora) {
       actualizacion.fechaHora = new Date(`${fecha}T${hora}`);
     } else if (req.body.fechaHora) {
@@ -416,9 +410,6 @@ const updatePedido = async (req, res) => {
 
     const pedidoExistente = pedidoDoc.toObject();
 
-    // =========================
-    // VALIDACIÓN FECHA
-    // =========================
     const fechaBase =
       actualizacion.fechaHora || pedidoExistente.fechaHora;
 
@@ -429,9 +420,6 @@ const updatePedido = async (req, res) => {
       });
     }
 
-    // =========================
-    // RECALCULAR HORARIO
-    // =========================
     const duracionBase =
       actualizacion.duracionClase || pedidoExistente.duracionClase;
 
@@ -445,9 +433,6 @@ const updatePedido = async (req, res) => {
       actualizacion.fechaFinReal = fin;
     }
 
-    // =========================
-    // DETECCIÓN DE CAMBIOS
-    // =========================
     const cambios = {};
 
     const compararSimple = [
@@ -460,11 +445,8 @@ const updatePedido = async (req, res) => {
 
     const normalize = (v) => {
       if (!v) return null;
-
       if (v instanceof Date) return v.toISOString();
-
       if (typeof v === "object" && v._id) return v._id.toString();
-
       return JSON.stringify(v);
     };
 
@@ -482,9 +464,6 @@ const updatePedido = async (req, res) => {
       }
     }    
 
-    // =========================
-    // HORARIO REAL
-    // =========================
     if (
       actualizacion.fechaInicioReal &&
       actualizacion.fechaFinReal
@@ -507,9 +486,6 @@ const updatePedido = async (req, res) => {
       }
     }
 
-    // =========================
-    // RECURSOS (IMPORTANTE)
-    // =========================
     if (actualizacion.recursos) {
       const normalizar = (r) => ({
         recursoId: r.recursoId?.toString?.() || r.recursoId,
@@ -530,9 +506,6 @@ const updatePedido = async (req, res) => {
       }
     }
 
-    // =========================
-    // HISTORIAL
-    // =========================
     if (Object.keys(cambios).length > 0) {
       registrarHistorial(
         pedidoDoc,
@@ -543,9 +516,6 @@ const updatePedido = async (req, res) => {
       );
     }
 
-    // =========================
-    // APLICAR CAMBIOS
-    // =========================
     Object.assign(pedidoDoc, actualizacion);
 
     await pedidoDoc.save();
@@ -569,15 +539,16 @@ const updateEstado = async (req, res) => {
     const { id } = req.params;
     const { estado } = req.body;
 
-    if (
-      ![
-        "Pendiente",
-        "En Revisión",
-        "Aceptado",
-        "Rechazado",
-        "Finalizado"
-      ].includes(estado)
-    ) {
+    const estadosValidos = [
+      "Pendiente",
+      "Aceptado",
+      "Rechazado",
+      "Finalizado",
+      "Cancelado",
+      "Expirado"
+    ];
+
+    if (!estadosValidos.includes(estado)) {
       return res.status(400).json({
         error: "Estado no válido"
       });
@@ -598,6 +569,30 @@ const updateEstado = async (req, res) => {
     }    
 
     const estadoAnterior = pedido.estado;
+
+    // Lógica para Cancelación de pedidos
+    if (estado === "Cancelado") {
+      if (!["Pendiente", "Aceptado"].includes(estadoAnterior)) {
+        return res.status(400).json({ error: "Solo se pueden cancelar pedidos en estado Pendiente o Aceptado." });
+      }
+
+      // Si el pedido ya había sido aceptado, devolvemos el stock y cancelamos la reserva
+      if (estadoAnterior === "Aceptado") {
+        for (const r of pedido.recursos) {
+          if (r.lotesDescontados && r.lotesDescontados.length > 0) {
+            for (const loteDesc of r.lotesDescontados) {
+              await Lote.findByIdAndUpdate(loteDesc.loteId, {
+                $inc: { cantidadDisponible: loteDesc.cantidadDescontada }
+              });
+            }
+          }
+        }
+        await Reserva.findOneAndUpdate(
+          { pedidoId: pedido._id },
+          { estado: 'Cancelada' }
+        );
+      }
+    }
 
     pedido.estado = estado;
 
@@ -703,7 +698,6 @@ const agregarComentario = async (req, res) => {
 
     await pedido.save();
 
-    // Volvemos a buscar el pedido ya guardado
     const pedidoActualizado = await Pedido.findById(id)
       .populate({
         path: "comentarios.usuario",

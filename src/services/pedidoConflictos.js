@@ -48,7 +48,6 @@ const verificarConflictos = async (pedido) => {
       });
     }
 
-    // Retiramos el estado "reservado" obsoleto, evaluando inoperatividad real
     if (
       laboratorio.estado === "en mantenimiento" ||
       laboratorio.estado === "fuera de servicio"
@@ -68,7 +67,7 @@ const verificarConflictos = async (pedido) => {
         fechaInicioReal: { $lt: finReal },
         fechaFinReal: { $gt: inicioReal },
         estado: {
-          $in: ["Pendiente", "En Revisión", "Aceptado"],
+          $in: ["Pendiente", "Aceptado"], // CAMBIO: Eliminado "En Revisión"
         },
       });
 
@@ -111,7 +110,6 @@ const verificarConflictos = async (pedido) => {
       let equipoConflictoDetectado = false;
 
       if (inicioReal && finReal) {
-        // Delegamos la verificación temporal de los equipos a la Reserva, ignorando al pedido actual
         const reservaOcupando = await Reserva.findOne({
           pedidoId: { $ne: pedido._id },
           fechaInicioReal: { $lt: finReal },

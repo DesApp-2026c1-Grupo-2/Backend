@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Equipo from "../models/equipo.model.js";
+import { obtenerEstadisticasUso } from "../services/estadisticasEquipo.js";
 
 const createEquipo = async (req, res) => {
   try {
@@ -124,10 +125,34 @@ const deleteEquipo = async (req, res) => {
   }
 };
 
+const getEstadisticasUso = async (req, res) => {
+  try {
+    // Joi (validate 'query') ya aplicó defaults y coerción de tipos.
+    const { periodo, fecha, laboratorioId, equipoId, page, limit } = req.query;
+
+    const resultado = await obtenerEstadisticasUso({
+      periodo,
+      fecha,
+      laboratorioId,
+      equipoId,
+      page,
+      limit,
+    });
+
+    return res.json(resultado);
+  } catch (err) {
+    return res.status(500).json({
+      error: "Error al obtener las estadísticas de uso de equipos",
+      detalles: err.message,
+    });
+  }
+};
+
 export {
     deleteEquipo,
     updateEquipo,
     getEquipoById,
     getEquipos,
-    createEquipo
+    createEquipo,
+    getEstadisticasUso
 }

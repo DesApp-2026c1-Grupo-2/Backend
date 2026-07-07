@@ -119,6 +119,11 @@ const aprobarPedido = async (req, res) => {
       return res.status(400).json({ error: "El pedido ya fue aceptado previamente y sus recursos ya fueron descontados." });
     }
 
+    // Auto-sanación: si un intento previo creó la reserva pero no llegó a persistir
+    // el pedido (quedó Pendiente), esa reserva es huérfana y bloquearía el reintento
+    // por el índice único de pedidoId. La eliminamos antes de recrear.
+    await Reserva.deleteOne({ pedidoId: pedido._id });
+
     // 1. Doble verificación de disponibilidad antes de mutar (para evitar descuentos parciales)
     const conflictos = await verificarConflictos(pedido);
 
@@ -248,7 +253,15 @@ const aprobarPedido = async (req, res) => {
     );
 
     pedido.checklist = checklist;
-    const pedidoAprobado = await pedido.save();
+    let pedidoAprobado;
+    try {
+      pedidoAprobado = await pedido.save();
+    } catch (saveErr) {
+      // Compensación: la reserva ya se creó; si el pedido no pudo persistirse,
+      // eliminamos la reserva para no dejar un huérfano que trabe reintentos.
+      await Reserva.deleteOne({ _id: nuevaReserva._id });
+      throw saveErr;
+    }
 
     // Poblamos para devolver el objeto completo al frontend
     await pedidoAprobado.populate([

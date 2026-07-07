@@ -337,8 +337,13 @@ const createPedido = async (req, res) => {
   try {
     const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
     
-    // La fechaHora ya viene construida y validada desde el middleware validatePedidos
+    // La fechaHora ya viene construida y validada desde el middleware validatePedidos.
+    // Guarda defensiva: sin ella calcularVentana fallaría con un error críptico.
     const fechaHora = req.body.fechaHora;
+
+    if (!fechaHora) {
+      return res.status(400).json({ error: "fechaHora es obligatorio" });
+    }
 
     if (!validarAnticipacionPedido(fechaHora)) {
       return res.status(400).json({
@@ -420,7 +425,7 @@ const updatePedido = async (req, res) => {
     if (fechaBase && !validarAnticipacionPedido(new Date(fechaBase))) {
       return res.status(400).json({
         error:
-          "No se pueden actualizar pedidos a menos de 2 horas o en fechas pasadas"
+          "No se pueden actualizar pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas"
       });
     }
 

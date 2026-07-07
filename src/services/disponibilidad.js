@@ -42,9 +42,11 @@ export const calcularDisponibilidad = async (
   itemId,
   inicioVentana,
   finVentana,
-  session = null
+  session = null,
+  // El caller puede pasar el Item ya cargado para evitar una lectura redundante.
+  itemPreCargado = null
 ) => {
-  const item = await Item.findById(itemId).session(session);
+  const item = itemPreCargado ?? (await Item.findById(itemId).session(session));
   if (!item) return 0;
 
   const oid = new mongoose.Types.ObjectId(itemId);

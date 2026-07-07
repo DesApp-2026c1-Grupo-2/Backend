@@ -4,6 +4,7 @@ import Reserva from "../models/reserva.model.js";
 import Pedido from "../models/pedido.model.js";
 import Lote from "../models/lote.model.js";
 import Equipo from "../models/equipo.model.js";
+import Item from "../models/item.model.js";
 
 export const registrarDescarteService = async (data, usuario) => {
   const session = await mongoose.startSession();
@@ -42,6 +43,9 @@ export const registrarDescarteService = async (data, usuario) => {
     else {
       const materialReserva = reserva.materialesReservados.find(m => m.itemId.toString() === itemId);
       if (!materialReserva) throw new Error("El ítem no forma parte de la reserva de este pedido.");
+
+      const item = await Item.findById(itemId).session(session);
+      if (!item) throw new Error("El ítem no existe.");
 
       // Validar histórico para no descartar más de lo usado
       const descartesPrevios = await Descarte.find({ pedidoId, itemId }).session(session);
@@ -92,6 +96,26 @@ export const registrarDescarteService = async (data, usuario) => {
 
       if (cantidadRestante > 0) {
         throw new Error("No hay suficiente cantidad disponible en los lotes asociados para cubrir el descarte.");
+      }
+
+      // Decremento físico SOLO para reutilizables (esConsumible === false). Los
+      // consumibles ya descontaron su stock al ejecutarse el consumo (cronReservas
+      // §7); descartarlos es puro registro. Los reutilizables nunca se
+      // decrementaron (son puramente temporales), así que el descarte —romperse
+      // durante el uso— es el evento que remueve su stock físico.
+      // La guarda $gte evita dejar cantidadDisponible negativo (min:0 no se valida
+      // en updateOne) y surfacea una inconsistencia física real.
+      if (item.esConsumible === false) {
+        for (const la of lotesAfectados) {
+          const upd = await Lote.updateOne(
+            { _id: la.loteId, cantidadDisponible: { $gte: la.cantidad } },
+            { $inc: { cantidadDisponible: -la.cantidad } },
+            { session }
+          );
+          if (upd.matchedCount === 0) {
+            throw new Error("Stock físico insuficiente en el lote para registrar el descarte.");
+          }
+        }
       }
     }
 
@@ -151,6 +175,20 @@ export const revertirDescarteService = async (descarteId, usuario) => {
       if (equipo && equipo.estado === "fuera de servicio") {
         equipo.estado = "disponible";
         await equipo.save({ session });
+      }
+    } else {
+      // Material/reactivo: reponer el stock solo si el ítem es reutilizable, ya
+      // que fue el único caso en que el descarte decrementó cantidadDisponible
+      // (ver registrarDescarteService). Los consumibles no restaron nada.
+      const item = await Item.findById(descarte.itemId).session(session);
+      if (item && item.esConsumible === false && descarte.lotesAfectados) {
+        for (const la of descarte.lotesAfectados) {
+          await Lote.updateOne(
+            { _id: la.loteId },
+            { $inc: { cantidadDisponible: la.cantidad } },
+            { session }
+          );
+        }
       }
     }
 

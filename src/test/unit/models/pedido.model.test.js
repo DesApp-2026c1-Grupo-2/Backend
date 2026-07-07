@@ -23,17 +23,19 @@ describe('Pedido Model Validations', () => {
     expect(err).toBeUndefined();
   });
 
-  it('debería retornar error de validación si faltan campos requeridos (materia, docente, laboratorio, alumnos)', () => {
+  it('debería retornar error de validación si faltan campos requeridos (materia, docente, alumnos, fechaHora, duracionClase)', () => {
     const pedido = new Pedido({});
     const err = pedido.validateSync();
-    
+
     expect(err).toBeDefined();
     expect(err.errors.materia).toBeDefined();
     expect(err.errors.docente).toBeDefined();
-    expect(err.errors.laboratorio).toBeDefined();
+    // 'laboratorio' es opcional (required:false): un pedido puede crearse sin
+    // laboratorio asignado y asignarse luego, antes de la aprobación.
+    expect(err.errors.laboratorio).toBeUndefined();
     expect(err.errors.alumnos).toBeDefined();
     expect(err.errors.fechaHora).toBeDefined();
-    expect(err.errors.duracionClase).toBeDefined(); // Campo requerido añadido
+    expect(err.errors.duracionClase).toBeDefined();
   });
 
   it('debería retornar error si el campo estado contiene un valor fuera de la enumeración permitida', () => {

@@ -6,6 +6,7 @@ import { seedActividades } from "./actividad.seed.js";
 import { seedInventario } from "./inventario.seed.js";
 import { seedPedidos } from "./pedido.seed.js";
 import { seedEquipos } from "./equipo.seed.js";
+import { seedHistorialMantenimiento } from "./historialMantenimiento.seed.js";
 import { seedSugerenciasRecurso } from "./sugerenciaRecurso.seed.js";
 import { seedReservas } from "./reserva.seed.js";
 import { seedDescartes } from "./descarte.seed.js";
@@ -24,6 +25,7 @@ const runSeeds = async () => {
     await seedActividades();
     await seedInventario();
     await seedEquipos();
+    await seedHistorialMantenimiento();
     await seedSugerenciasRecurso();
     await seedPedidos();
     await seedReservas();

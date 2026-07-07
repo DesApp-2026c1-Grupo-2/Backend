@@ -75,8 +75,15 @@ describe('pedidoControllers', () => {
     Pedido.findById = vi.fn();
     Pedido.findByIdAndUpdate = vi.fn();
     
-    // Mocks de constructores e instancias
-    const PedidoMock = function(data) { return { ...data, save: vi.fn().mockResolvedValue(this), populate: vi.fn().mockResolvedValue(this) }; };
+    // Mocks de constructores e instancias.
+    // La instancia se auto-referencia en save/populate (devuelven el mismo objeto,
+    // como Mongoose) e incluye historial:[] para que registrarHistorial funcione.
+    const PedidoMock = function(data) {
+      const instance = { historial: [], ...data };
+      instance.save = vi.fn().mockResolvedValue(instance);
+      instance.populate = vi.fn().mockResolvedValue(instance);
+      return instance;
+    };
     Pedido.mockImplementation(PedidoMock);
 
     Reserva.findOneAndUpdate = vi.fn();
@@ -165,8 +172,8 @@ describe('pedidoControllers', () => {
     it('debe crear un pedido correctamente', async () => {
       const req = mockReq({
         body: {
-          fecha: '2026-06-03',
-          hora: '10:00',
+          // El middleware entrega fechaHora como Date; calcularVentana lo asume.
+          fechaHora: new Date('2026-06-03T10:00:00Z'),
           materia: 'Química',
           duracionClase: 120,
           recursos: [{ recursoId: '1', tipoRecurso: 'Item', cantidad: 1 }]
@@ -219,13 +226,13 @@ describe('pedidoControllers', () => {
         body: { fechaHora: '2026-06-10T12:00:00Z' }
       });
       const res = mockRes();
-      const mockPedido = { _id: 'p_1', fechaHora: new Date() };
+      const mockPedido = { _id: 'p_1', fechaHora: new Date(), toObject() { return this; } };
       Pedido.findById.mockResolvedValue(mockPedido);
 
       await updatePedido(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: 'No se pueden actualizar pedidos a menos de 2 horas de anticipación el mismo día o a fechas pasadas' });
+      expect(res.json).toHaveBeenCalledWith({ error: 'No se pueden actualizar pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas' });
     });
   });
 
@@ -373,18 +380,20 @@ describe('pedidoControllers', () => {
     it('debe marcar el pedido como inactivo', async () => {
       const req = mockReq({ params: { id: 'p_1' } });
       const res = mockRes();
-      Pedido.findByIdAndUpdate.mockResolvedValue({ _id: 'p_1', activo: false });
+      const mockPedido = { _id: 'p_1', activo: true, historial: [], save: vi.fn().mockResolvedValue(true) };
+      Pedido.findById.mockResolvedValue(mockPedido);
 
       await borrarPedidoLogico(req, res);
 
-      expect(Pedido.findByIdAndUpdate).toHaveBeenCalledWith('p_1', { activo: false }, { new: true });
-      expect(res.json).toHaveBeenCalledWith({ message: 'Pedido eliminado lógicamente', pedido: { _id: 'p_1', activo: false } });
+      expect(mockPedido.activo).toBe(false);
+      expect(mockPedido.save).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({ message: 'Pedido eliminado lógicamente', pedido: mockPedido });
     });
 
     it('debe retornar 404 si el pedido no existe', async () => {
       const req = mockReq({ params: { id: 'p_1' } });
       const res = mockRes();
-      Pedido.findByIdAndUpdate.mockResolvedValue(null);
+      Pedido.findById.mockResolvedValue(null);
 
       await borrarPedidoLogico(req, res);
 

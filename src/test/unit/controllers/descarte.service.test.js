@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import mongoose from 'mongoose';
-import { revertirDescarteService } from '../../../services/descarte.service.js';
+import { registrarDescarteService, revertirDescarteService } from '../../../services/descarte.service.js';
 import Descarte from '../../../models/descarte.model.js';
 import Pedido from '../../../models/pedido.model.js';
 import Equipo from '../../../models/equipo.model.js';
+import Reserva from '../../../models/reserva.model.js';
+import Lote from '../../../models/lote.model.js';
+import Item from '../../../models/item.model.js';
 
 // 1. Mockeamos mongoose para poder simular las transacciones
 vi.mock('mongoose', async () => {
@@ -21,6 +24,9 @@ vi.mock('mongoose', async () => {
 vi.mock('../../../models/descarte.model.js');
 vi.mock('../../../models/pedido.model.js');
 vi.mock('../../../models/equipo.model.js');
+vi.mock('../../../models/reserva.model.js');
+vi.mock('../../../models/lote.model.js');
+vi.mock('../../../models/item.model.js');
 
 const createQueryMock = (resolvedValue) => ({
   session: vi.fn().mockResolvedValue(resolvedValue)
@@ -93,5 +99,144 @@ describe('revertirDescarteService', () => {
     expect(descarteMock.deleteOne).toHaveBeenCalledWith({ session: mockSession });
     expect(mockSession.commitTransaction).toHaveBeenCalled();
     expect(mockSession.endSession).toHaveBeenCalled();
+  });
+
+  it('al revertir un descarte de material reutilizable, repone el stock del lote', async () => {
+    const usuarioMock = { id: 'admin_1', rol: 'ADMIN' };
+
+    const descarteMock = {
+      _id: 'descarte_3',
+      pedidoId: 'pedido_3',
+      tipo: 'material',
+      itemId: 'item_1',
+      lotesAfectados: [{ loteId: 'lote_1', cantidad: 2 }],
+      deleteOne: vi.fn().mockResolvedValue(true),
+    };
+    Descarte.findById = vi.fn().mockReturnValue(createQueryMock(descarteMock));
+
+    const pedidoMock = { _id: 'pedido_3', estado: 'Aceptado', docente: { toString: () => 'docente_1' } };
+    Pedido.findById = vi.fn().mockReturnValue(createQueryMock(pedidoMock));
+
+    // Ítem reutilizable → hubo decremento al descartar, así que debe reponerse.
+    Item.findById = vi.fn().mockReturnValue(createQueryMock({ _id: 'item_1', esConsumible: false }));
+    Lote.updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
+
+    await revertirDescarteService('descarte_3', usuarioMock);
+
+    expect(Lote.updateOne).toHaveBeenCalledWith(
+      { _id: 'lote_1' },
+      { $inc: { cantidadDisponible: 2 } },
+      { session: mockSession }
+    );
+    expect(descarteMock.deleteOne).toHaveBeenCalledWith({ session: mockSession });
+    expect(mockSession.commitTransaction).toHaveBeenCalled();
+  });
+
+  it('al revertir un descarte de material consumible, NO repone stock', async () => {
+    const usuarioMock = { id: 'admin_1', rol: 'ADMIN' };
+
+    const descarteMock = {
+      _id: 'descarte_4',
+      pedidoId: 'pedido_4',
+      tipo: 'reactivo',
+      itemId: 'item_2',
+      lotesAfectados: [{ loteId: 'lote_2', cantidad: 3 }],
+      deleteOne: vi.fn().mockResolvedValue(true),
+    };
+    Descarte.findById = vi.fn().mockReturnValue(createQueryMock(descarteMock));
+
+    const pedidoMock = { _id: 'pedido_4', estado: 'Aceptado', docente: { toString: () => 'docente_1' } };
+    Pedido.findById = vi.fn().mockReturnValue(createQueryMock(pedidoMock));
+
+    Item.findById = vi.fn().mockReturnValue(createQueryMock({ _id: 'item_2', esConsumible: true }));
+    Lote.updateOne = vi.fn();
+
+    await revertirDescarteService('descarte_4', usuarioMock);
+
+    expect(Lote.updateOne).not.toHaveBeenCalled();
+    expect(descarteMock.deleteOne).toHaveBeenCalledWith({ session: mockSession });
+    expect(mockSession.commitTransaction).toHaveBeenCalled();
+  });
+});
+
+describe('registrarDescarteService', () => {
+  let mockSession;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mockSession = {
+      startTransaction: vi.fn(),
+      commitTransaction: vi.fn(),
+      abortTransaction: vi.fn(),
+      endSession: vi.fn(),
+    };
+    mongoose.startSession.mockResolvedValue(mockSession);
+
+    // Constructor de Descarte: instancia con .save() resuelto.
+    Descarte.mockImplementation(function (data) {
+      return { ...data, save: vi.fn().mockResolvedValue(true) };
+    });
+  });
+
+  const baseReserva = () => ({
+    _id: 'reserva_1',
+    materialesReservados: [
+      {
+        itemId: 'item_1',
+        cantidadTotal: 5,
+        lotesUsados: [{ loteId: 'lote_1', cantidad: 5 }],
+      },
+    ],
+  });
+
+  const setupComun = ({ esConsumible, previos = [], updateResult = { matchedCount: 1 } }) => {
+    Pedido.findById = vi.fn().mockReturnValue(
+      createQueryMock({ _id: 'pedido_1', docente: { toString: () => 'docente_1' } })
+    );
+    Reserva.findOne = vi.fn().mockReturnValue(createQueryMock(baseReserva()));
+    Item.findById = vi.fn().mockReturnValue(createQueryMock({ _id: 'item_1', esConsumible }));
+    Descarte.find = vi.fn().mockReturnValue(createQueryMock(previos));
+    Lote.updateOne = vi.fn().mockResolvedValue(updateResult);
+  };
+
+  it('reutilizable: decrementa cantidadDisponible del lote con guarda $gte y confirma', async () => {
+    setupComun({ esConsumible: false });
+    const usuario = { id: 'admin_1', rol: 'ADMIN' };
+    const data = { pedidoId: 'pedido_1', tipo: 'material', itemId: 'item_1', cantidad: 2, motivo: 'roto' };
+
+    await registrarDescarteService(data, usuario);
+
+    expect(Lote.updateOne).toHaveBeenCalledWith(
+      { _id: 'lote_1', cantidadDisponible: { $gte: 2 } },
+      { $inc: { cantidadDisponible: -2 } },
+      { session: mockSession }
+    );
+    expect(mockSession.commitTransaction).toHaveBeenCalled();
+    expect(mockSession.abortTransaction).not.toHaveBeenCalled();
+  });
+
+  it('consumible: NO toca el stock del lote (ya se descontó al ejecutarse)', async () => {
+    setupComun({ esConsumible: true });
+    const usuario = { id: 'admin_1', rol: 'ADMIN' };
+    const data = { pedidoId: 'pedido_1', tipo: 'reactivo', itemId: 'item_1', cantidad: 2, motivo: 'derrame' };
+
+    await registrarDescarteService(data, usuario);
+
+    expect(Lote.updateOne).not.toHaveBeenCalled();
+    expect(mockSession.commitTransaction).toHaveBeenCalled();
+  });
+
+  it('reutilizable con stock físico insuficiente (matchedCount 0): lanza error y aborta', async () => {
+    setupComun({ esConsumible: false, updateResult: { matchedCount: 0 } });
+    const usuario = { id: 'admin_1', rol: 'ADMIN' };
+    const data = { pedidoId: 'pedido_1', tipo: 'material', itemId: 'item_1', cantidad: 2, motivo: 'roto' };
+
+    await expect(registrarDescarteService(data, usuario))
+      .rejects
+      .toThrow('Stock físico insuficiente en el lote para registrar el descarte.');
+
+    expect(mockSession.abortTransaction).toHaveBeenCalled();
+    expect(mockSession.commitTransaction).not.toHaveBeenCalled();
   });
 });

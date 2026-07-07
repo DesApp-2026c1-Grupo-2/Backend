@@ -3,13 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mocks de modelos ANTES de importar el seeder.
 vi.mock('../../../models/item.model.js');
 vi.mock('../../../models/lote.model.js');
-vi.mock('../../../models/actividad.model.js');
 vi.mock('../../../models/recetaReactivo.model.js');
 vi.mock('../../../models/produccionReactivo.model.js');
 
 import Item from '../../../models/item.model.js';
 import Lote from '../../../models/lote.model.js';
-import Actividad from '../../../models/actividad.model.js';
 import RecetaReactivo from '../../../models/recetaReactivo.model.js';
 import ProduccionReactivo from '../../../models/produccionReactivo.model.js';
 import { seedInventario } from '../../../seed/inventario.seed.js';
@@ -40,9 +38,6 @@ describe('seedInventario', () => {
       return Promise.resolve(arr);
     });
 
-    Actividad.find.mockResolvedValue([
-      { _id: 'act_prep', nombre: 'Preparación de Soluciones' },
-    ]);
     RecetaReactivo.insertMany.mockResolvedValue([]);
     ProduccionReactivo.insertMany.mockResolvedValue([]);
 

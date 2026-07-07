@@ -129,18 +129,30 @@ const stockFisicoTotal = async (oid, session) => {
   return agg.length > 0 ? agg[0].total : 0;
 };
 
-// Reservas de un estado dado cuya ventana solapa [inicio, fin], desglosadas por
-// reserva para poder decir "para qué día/horario". Reutiliza el índice §12.
-const reservasEnVentana = async (oid, estado, inicio, fin, session) => {
+// Reservas de un estado dado, desglosadas por reserva para poder decir "para qué
+// día/horario". Reutiliza el índice §12.
+//   - acotarPorFin=true  → solapamiento estricto de ventana (fechaFinReal > inicio).
+//   - acotarPorFin=false → criterio acumulado (solo fechaInicioReal < fin), igual
+//     que calcularDisponibilidad para consumibles: una reserva que consume antes
+//     de la ventana igualmente depleta el pool, así que debe listarse.
+const reservasEnVentana = async (
+  oid,
+  estado,
+  inicio,
+  fin,
+  session,
+  acotarPorFin = true
+) => {
+  const match = {
+    estado,
+    fechaInicioReal: { $lt: fin },
+  };
+  if (acotarPorFin) {
+    match.fechaFinReal = { $gt: inicio };
+  }
   return conSession(
     Reserva.aggregate([
-      {
-        $match: {
-          estado,
-          fechaInicioReal: { $lt: fin },
-          fechaFinReal: { $gt: inicio },
-        },
-      },
+      { $match: match },
       { $unwind: "$materialesReservados" },
       { $match: { "materialesReservados.itemId": oid } },
       {
@@ -162,15 +174,28 @@ const reservasEnVentana = async (oid, estado, inicio, fin, session) => {
  * ventana [desde, hasta] (§14):
  *  - total:      stock físico instalado (existencia real)
  *  - disponible: lo reservable en la ventana (calcularDisponibilidad, §3)
- *  - aceptado:   reservas 'Pendiente' que solapan, desglosadas por reserva
+ *  - aceptado:   reservas 'Pendiente' que pesan sobre la ventana, por reserva
  *  - enUso:      reservas 'En Curso' que solapan, desglosadas por reserva
+ *
+ * 'aceptado' usa el MISMO criterio que 'disponible' según el tipo de item, de
+ * modo que las magnitudes reconcilien (disponible + Σaceptado [+ ΣenUso para
+ * reutilizables] = total):
+ *  - Reutilizable: solapamiento estricto (temporal).
+ *  - Consumible:   acumulado (una reserva que consume antes de la ventana
+ *                  igualmente depleta el pool y debe listarse).
  */
 export const desgloseStock = async (itemId, desde, hasta, session = null) => {
+  const item = await Item.findById(itemId).session(session);
+  if (!item) return { total: 0, disponible: 0, aceptado: [], enUso: [] };
+
   const oid = new mongoose.Types.ObjectId(itemId);
+  const esConsumible = item.esConsumible === true;
+
   const [total, disponible, aceptado, enUso] = await Promise.all([
     stockFisicoTotal(oid, session),
     calcularDisponibilidad(itemId, desde, hasta, session),
-    reservasEnVentana(oid, "Pendiente", desde, hasta, session),
+    // Consumible → acumulado (acotarPorFin=false); reutilizable → solapamiento.
+    reservasEnVentana(oid, "Pendiente", desde, hasta, session, !esConsumible),
     reservasEnVentana(oid, "En Curso", desde, hasta, session),
   ]);
   return { total, disponible, aceptado, enUso };

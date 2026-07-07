@@ -23,10 +23,18 @@ vi.mock('../../../models/lote.model.js', () => ({
 vi.mock('../../../models/pedido.model.js', () => ({
   default: { findByIdAndUpdate: vi.fn() }
 }));
+vi.mock('../../../models/item.model.js', () => ({
+  default: { findById: vi.fn() }
+}));
 
 import Reserva from '../../../models/reserva.model.js';
 import Lote from '../../../models/lote.model.js';
 import Pedido from '../../../models/pedido.model.js';
+import Item from '../../../models/item.model.js';
+
+// Item.findById(...).select('esConsumible') → devuelve el item indicado
+const mockItem = (esConsumible) =>
+  Item.findById.mockReturnValue({ select: vi.fn().mockResolvedValue({ esConsumible }) });
 import {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
@@ -79,16 +87,17 @@ describe('reservaControllers', () => {
   });
 
   describe('cancelarReserva', () => {
-    it('debe cancelar la reserva, restaurar el stock descontado y rechazar el pedido origen (200)', async () => {
+    it('NO restaura stock al cancelar una reserva Pendiente (los lotesUsados son solo punteros), pero cancela y rechaza el pedido (200)', async () => {
       const req = mockReq({ params: { id: 'r_1' } });
       const res = mockRes();
-      
-      // Simulamos una reserva que gastó 5 unidades del lote_1
+
+      // Reserva Pendiente: nunca se decrementó cantidadDisponible.
       const mockReserva = {
         _id: 'r_1',
         estado: 'Pendiente',
         pedidoId: 'p_1',
         materialesReservados: [{
+          itemId: 'item_1',
           lotesUsados: [{ loteId: 'lote_1', cantidad: 5 }]
         }],
         save: vi.fn().mockResolvedValue(true)
@@ -97,17 +106,64 @@ describe('reservaControllers', () => {
 
       await cancelarReserva(req, res);
 
-      // Validación 1: Se restaura el stock usando el modelo Lote
-      expect(Lote.findByIdAndUpdate).toHaveBeenCalledWith('lote_1', {
-        $inc: { cantidadDisponible: 5 }
-      });
-      
+      // Validación 1: NO se toca el stock (reponer inflaría el inventario)
+      expect(Lote.findByIdAndUpdate).not.toHaveBeenCalled();
+
       // Validación 2: El modelo de la reserva cambia su estado
       expect(mockReserva.estado).toBe('Cancelada');
       expect(mockReserva.save).toHaveBeenCalled();
-      
+
       // Validación 3: Se sincroniza el pedido marcándolo como Rechazado
       expect(Pedido.findByIdAndUpdate).toHaveBeenCalledWith('p_1', { estado: 'Rechazado' });
+    });
+
+    it('restaura el stock de consumibles al cancelar una reserva En Curso (ya se descontó físicamente) (200)', async () => {
+      const req = mockReq({ params: { id: 'r_2' } });
+      const res = mockRes();
+
+      const mockReserva = {
+        _id: 'r_2',
+        estado: 'En Curso',
+        pedidoId: 'p_2',
+        materialesReservados: [{
+          itemId: 'item_1',
+          lotesUsados: [{ loteId: 'lote_1', cantidad: 5 }]
+        }],
+        save: vi.fn().mockResolvedValue(true)
+      };
+      Reserva.findById.mockResolvedValue(mockReserva);
+      mockItem(true); // consumible → sí se había decrementado
+
+      await cancelarReserva(req, res);
+
+      expect(Lote.findByIdAndUpdate).toHaveBeenCalledWith('lote_1', {
+        $inc: { cantidadDisponible: 5 }
+      });
+      expect(mockReserva.estado).toBe('Cancelada');
+      expect(Pedido.findByIdAndUpdate).toHaveBeenCalledWith('p_2', { estado: 'Rechazado' });
+    });
+
+    it('NO restaura stock de materiales reutilizables aunque la reserva esté En Curso (nunca se decrementaron) (200)', async () => {
+      const req = mockReq({ params: { id: 'r_3' } });
+      const res = mockRes();
+
+      const mockReserva = {
+        _id: 'r_3',
+        estado: 'En Curso',
+        pedidoId: 'p_3',
+        materialesReservados: [{
+          itemId: 'item_2',
+          lotesUsados: [{ loteId: 'lote_2', cantidad: 3 }]
+        }],
+        save: vi.fn().mockResolvedValue(true)
+      };
+      Reserva.findById.mockResolvedValue(mockReserva);
+      mockItem(false); // reutilizable → nunca se decrementó
+
+      await cancelarReserva(req, res);
+
+      expect(Lote.findByIdAndUpdate).not.toHaveBeenCalled();
+      expect(mockReserva.estado).toBe('Cancelada');
     });
   });
 });

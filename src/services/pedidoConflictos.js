@@ -1,8 +1,8 @@
 import Pedido from "../models/pedido.model.js";
 import Equipo from "../models/equipo.model.js";
-import Lote from "../models/lote.model.js";
 import Laboratorio from "../models/laboratorio.model.js";
 import Reserva from "../models/reserva.model.js";
+import { calcularDisponibilidad } from "./disponibilidad.js";
 
 const verificarConflictos = async (pedido) => {
   const conflictos = [];
@@ -144,10 +144,17 @@ const verificarConflictos = async (pedido) => {
     // =========================
 
     if (ref === "Item") {
+      // Disponibilidad por rango horario (docs/stock-disponibilidad-temporal.md §3).
+      // Si el pedido aún no tiene ventana calculable, caemos al conteo global
+      // (sin acotar por horario) usando toda la ventana disponible.
       const stockDisponible =
-        await Lote.calcularStockDisponible(
-          r.recursoId
-        );
+        inicioReal && finReal
+          ? await calcularDisponibilidad(r.recursoId, inicioReal, finReal)
+          : await calcularDisponibilidad(
+              r.recursoId,
+              new Date(0),
+              new Date(8640000000000000)
+            );
 
       if (stockDisponible < r.cantidad) {
         conflictos.push({

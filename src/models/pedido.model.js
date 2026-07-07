@@ -16,10 +16,8 @@ const recursoSchema = new mongoose.Schema({
     required: true,
     min: 1,
   },
-  lotesDescontados: [{
-    loteId: { type: mongoose.Schema.Types.ObjectId, ref: "Lote" },
-    cantidadDescontada: { type: Number, required: true }
-  }]
+  // 'lotesDescontados' fue eliminado: la única fuente de verdad de qué lote se
+  // usó pasa a ser reserva.materialesReservados.lotesUsados
 });
 
 const comentarioSchema = new mongoose.Schema({

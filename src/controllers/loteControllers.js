@@ -24,9 +24,8 @@ const getLotes = async (req, res) => {
 
     // Usamos populate para traer información relevante de las colecciones relacionadas
     const lotes = await Lote.find(filtros)
-      .populate('itemId', 'nombre codigo tipo') // Traemos el nombre, código y tipo del Item
-      .populate('actividadId', 'nombre estado');
-      
+      .populate('itemId', 'nombre codigo tipo'); // Traemos el nombre, código y tipo del Item
+
     return res.status(200).json(lotes);
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -38,8 +37,7 @@ const getLoteById = async (req, res) => {
   try {
     const { id } = req.params;
     const lote = await Lote.findOne({ _id: id, activo: { $ne: false } })
-      .populate('itemId', 'nombre codigo tipo')
-      .populate('actividadId', 'nombre estado');
+      .populate('itemId', 'nombre codigo tipo');
     
     if (!lote) {
       return res.status(404).json({ error: "Lote no encontrado" });

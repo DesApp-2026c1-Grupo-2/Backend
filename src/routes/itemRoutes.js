@@ -5,6 +5,7 @@ import {
   createItem,
   getItems,
   getItemById,
+  getStockItem,
   updateItem,
   deleteItemLogico
 } from '../controllers/itemControllers.js';
@@ -13,6 +14,7 @@ import validarItem from '../middlewares/validateItems.js';
 
 // Rutas CRUD para Items
 router.get('/', getItems);
+router.get('/:id/stock', getStockItem); // Vista de stock por rango (§14)
 router.get('/:id', getItemById);
 router.post('/', validarItem, createItem);
 router.put('/:id', validarItem, updateItem);

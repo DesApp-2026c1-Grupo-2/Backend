@@ -2,6 +2,7 @@ import Reserva from "../models/reserva.model.js";
 import Equipo from "../models/equipo.model.js";
 import Lote from "../models/lote.model.js";
 import Pedido from "../models/pedido.model.js";
+import Item from "../models/item.model.js";
 
 // Controlador para listar reservas activas filtradas por un laboratorio específico
 const getReservasActivasPorLaboratorio = async (req, res) => {
@@ -70,12 +71,21 @@ const cancelarReserva = async (req, res) => {
       return res.status(400).json({ error: `No se puede cancelar una reserva que ya está en estado ${reserva.estado}` });
     }
 
-    // 1. Restaurar stock a los lotes (Devolvemos TODO porque la reserva no ocurrió)
-    for (const material of reserva.materialesReservados) {
-      for (const lote of material.lotesUsados) {
-        await Lote.findByIdAndUpdate(lote.loteId, {
-          $inc: { cantidadDisponible: lote.cantidad }
-        });
+    // 1. Restaurar stock SOLO de lo que fue físicamente descontado.
+    //    Con el modelo de disponibilidad temporal, cantidadDisponible se
+    //    decrementa únicamente cuando la reserva pasó a "En Curso" y el material
+    //    es consumible (cronReservas.ejecutarConsumoFisico). En cualquier otro
+    //    caso —reserva Pendiente, o materiales reutilizables— los lotesUsados son
+    //    solo punteros FIFO y nunca se restó nada: reponer inflaría el inventario.
+    if (reserva.estado === 'En Curso') {
+      for (const material of reserva.materialesReservados) {
+        const item = await Item.findById(material.itemId).select('esConsumible');
+        if (!item || item.esConsumible !== true) continue; // reutilizable: nada que reponer
+        for (const lote of material.lotesUsados) {
+          await Lote.findByIdAndUpdate(lote.loteId, {
+            $inc: { cantidadDisponible: lote.cantidad }
+          });
+        }
       }
     }
 

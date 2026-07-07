@@ -272,6 +272,7 @@ describe('pedidoControllers', () => {
       const mockPedido = {
         _id: 'p_1',
         estado: 'Pendiente',
+        historial: [],
         recursos: [],
         duracionClase: 120,
         fechaHora: new Date(),
@@ -282,12 +283,15 @@ describe('pedidoControllers', () => {
       mockPedido.populate.mockResolvedValue(mockPedido);
       Pedido.findById.mockResolvedValue(mockPedido);
       verificarConflictos.mockResolvedValue([]); // Sin conflictos
+      // Nuevo flujo (docs/stock-disponibilidad-temporal.md §5): la reserva se crea
+      // vía aprobarConReserva → Reserva.create([...]).
+      Reserva.create.mockResolvedValue([{ _id: 'r_1' }]);
 
       await aprobarPedido(req, res);
 
       expect(mockPedido.estado).toBe('Aceptado');
       expect(mockPedido.save).toHaveBeenCalled();
-      expect(Reserva).toHaveBeenCalled();
+      expect(Reserva.create).toHaveBeenCalled();
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
         message: expect.any(String),
         pedido: mockPedido,
@@ -312,6 +316,7 @@ describe('pedidoControllers', () => {
       const mockPedido = {
         _id: 'p_1',
         estado: 'Aceptado',
+        historial: [],
         recursos: [],
         save: vi.fn(),
         populate: vi.fn(),
@@ -328,23 +333,23 @@ describe('pedidoControllers', () => {
       expect(res.json).toHaveBeenCalled();
     });
 
-    it('no debe devolver al stock la cantidad de materiales descartados', async () => {
+    it('no debe devolver stock al inventario en la finalización (modelo temporal)', async () => {
+      // Nuevo modelo (docs/stock-disponibilidad-temporal.md §10): la finalización
+      // no repone stock. Los reutilizables nunca decrementaron cantidadDisponible
+      // y los consumibles ya se consumieron; por lo tanto Lote.findByIdAndUpdate
+      // no debe invocarse.
       const req = mockReq({ params: { id: 'p_1' } });
       const res = mockRes();
-      
-      // Creamos un pedido mockeado donde se usaron 2 lotes de un material
+
       const mockPedido = {
         _id: 'p_1',
         estado: 'Aceptado',
+        historial: [],
         recursos: [
           {
             tipoRecurso: 'Item',
             recursoId: 'item_1',
             cantidad: 10,
-            lotesDescontados: [
-              { loteId: 'lote_1', cantidadDescontada: 5 },
-              { loteId: 'lote_2', cantidadDescontada: 5 }
-            ]
           }
         ],
         save: vi.fn(),
@@ -352,29 +357,15 @@ describe('pedidoControllers', () => {
       };
       mockPedido.save.mockResolvedValue(mockPedido);
       mockPedido.populate.mockResolvedValue(mockPedido);
-      
-      Pedido.findById.mockResolvedValue(mockPedido);
-      
-      // Simulamos que es un material retornable (no consumible)
-      Item.findById.mockResolvedValue({ _id: 'item_1', esConsumible: false });
 
-      // Simulamos que se perdieron o rompieron 3 ítems del lote_1 y todos los 5 ítems del lote_2
-      Descarte.find.mockResolvedValue([
-        {
-          tipo: 'material',
-          lotesAfectados: [
-            { loteId: 'lote_1', cantidad: 3 },
-            { loteId: 'lote_2', cantidad: 5 }
-          ]
-        }
-      ]);
+      Pedido.findById.mockResolvedValue(mockPedido);
+      Item.findById.mockResolvedValue({ _id: 'item_1', esConsumible: false });
 
       await finalizarPedido(req, res);
 
-      // Verificamos que solo se le devuelvan 2 unidades al lote_1 (5 iniciales - 3 rotas = 2 devueltas)
-      expect(Lote.findByIdAndUpdate).toHaveBeenCalledWith('lote_1', { $inc: { cantidadDisponible: 2 } });
-      // Verificamos que no se llamó una segunda vez (no se debió devolver stock del lote 2 ya que se descartó completo)
-      expect(Lote.findByIdAndUpdate).toHaveBeenCalledTimes(1);
+      expect(mockPedido.estado).toBe('Finalizado');
+      expect(Lote.findByIdAndUpdate).not.toHaveBeenCalled();
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith({ pedidoId: 'p_1' }, { estado: 'Finalizada' });
     });
   });
 

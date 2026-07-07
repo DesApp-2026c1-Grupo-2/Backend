@@ -20,6 +20,8 @@ import reservaRoutes from './routes/reservaRoutes.js';
 import descarteRoutes from './routes/descarte.routes.js';
 import sugerenciaRecursoRouter from './routes/sugerenciaRecurso.routes.js';
 
+import { iniciarCronReservas } from './services/cronReservas.js';
+
 
 
 // Middlewares
@@ -50,6 +52,9 @@ const MONGO_URI = process.env.MONGO_URI
 mongoose.connect(MONGO_URI)
   .then(() => {
     console.log("Conectado a MongoDB correctamente");
+    // Cron de ciclo de vida de reservas (§6/§7/§9): Pendiente→En Curso con
+    // consumo físico de consumibles y En Curso→Finalizada.
+    iniciarCronReservas();
   })
   .catch((err) => {
     console.error(" Error conectando a MongoDB:", err);

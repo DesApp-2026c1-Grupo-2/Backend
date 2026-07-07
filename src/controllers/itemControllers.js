@@ -1,5 +1,6 @@
 import Item from "../models/item.model.js";
 import Lote from "../models/lote.model.js"; // Necesario para validar antes de borrar
+import { desgloseStock } from "../services/disponibilidad.js";
 
 
 // C: Crear un nuevo item
@@ -48,6 +49,52 @@ const getItems = async (req, res) => {
     return res.status(200).json({
       ...item.toObject(),
       stockDisponible
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+// R: Vista de gestión de stock por rango horario (§14)
+// GET /items/:id/stock?desde=<ISO>&hasta=<ISO>  (sin rango → día actual)
+const getStockItem = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const item = await Item.findOne({ _id: id, activo: { $ne: false } });
+    if (!item) {
+      return res.status(404).json({ error: "Ítem no encontrado" });
+    }
+
+    const { desde, hasta } = req.query;
+    let inicio, fin;
+
+    if (desde || hasta) {
+      inicio = new Date(desde);
+      fin = new Date(hasta);
+      if (isNaN(inicio.getTime()) || isNaN(fin.getTime())) {
+        return res
+          .status(400)
+          .json({ error: "Parámetros 'desde'/'hasta' inválidos (se espera ISO)" });
+      }
+      if (inicio >= fin) {
+        return res
+          .status(400)
+          .json({ error: "'desde' debe ser anterior a 'hasta'" });
+      }
+    } else {
+      // Sin rango → día actual completo.
+      inicio = new Date();
+      inicio.setHours(0, 0, 0, 0);
+      fin = new Date();
+      fin.setHours(23, 59, 59, 999);
+    }
+
+    const desglose = await desgloseStock(id, inicio, fin);
+    return res.status(200).json({
+      itemId: id,
+      desde: inicio,
+      hasta: fin,
+      ...desglose,
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -111,6 +158,7 @@ export {
   createItem,
   getItems,
   getItemById,
+  getStockItem,
   updateItem,
   deleteItemLogico
 };

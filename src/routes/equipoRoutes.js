@@ -28,17 +28,18 @@ import {
     getHistorialMantenimiento
 } from '../controllers/historialMantenimientoControllers.js';
 
-router.post("/", validate(createEquipoSchema, 'body'), createEquipo);
-router.get("/", validate(equipoQuerySchema, 'query'), getEquipos);
-router.get("/estadisticas-uso",validarJWT,validarRol('PERSONAL', 'ADMIN'),validate(estadisticasUsoQuerySchema, 'query'),getEstadisticasUso)
+// Lecturas: cualquier usuario autenticado. Mutaciones y estadísticas: PERSONAL/ADMIN.
+router.post("/", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(createEquipoSchema, 'body'), createEquipo);
+router.get("/", validarJWT, validate(equipoQuerySchema, 'query'), getEquipos);
+router.get("/estadisticas-uso", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(estadisticasUsoQuerySchema, 'query'), getEstadisticasUso);
 
 // Historial de mantenimiento (sub-recurso del equipo)
 router.post("/:id/mantenimientos", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(equipoIdParamSchema, 'params'), validate(registrarMantenimientoSchema, 'body'), registrarMantenimiento);
 router.patch("/:id/mantenimientos/finalizar", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(equipoIdParamSchema, 'params'), validate(finalizarMantenimientoSchema, 'body'), finalizarMantenimiento);
 router.get("/:id/mantenimientos", validarJWT, validate(equipoIdParamSchema, 'params'), validate(historialMantenimientoQuerySchema, 'query'), getHistorialMantenimiento);
 
-router.get("/:id", validate(equipoIdParamSchema, 'params'), getEquipoById);
-router.put("/:id", validate(equipoIdParamSchema, 'params'), validate(updateEquipoSchema, 'body'), updateEquipo);
-router.delete("/:id", validate(equipoIdParamSchema, 'params'), deleteEquipo);
+router.get("/:id", validarJWT, validate(equipoIdParamSchema, 'params'), getEquipoById);
+router.put("/:id", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(equipoIdParamSchema, 'params'), validate(updateEquipoSchema, 'body'), updateEquipo);
+router.delete("/:id", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(equipoIdParamSchema, 'params'), deleteEquipo);
 
 export default router;

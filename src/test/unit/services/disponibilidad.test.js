@@ -147,6 +147,40 @@ describe('desgloseStock (vista de gestión §14)', () => {
     expect(resultado.enUso).toEqual([]);
   });
 
+  it('para consumibles, "aceptado" usa el criterio acumulado (no acota por fechaFinReal), igual que disponible', async () => {
+    mockItem({ _id: ITEM_ID, esConsumible: true });
+    Lote.aggregate.mockResolvedValue([{ total: 50 }]);
+    Reserva.aggregate.mockImplementation((pipeline) => {
+      const estado = pipeline[0].$match.estado;
+      // calcularDisponibilidad agrega con $group→total; reservasEnVentana proyecta el desglose.
+      const esAgregado = pipeline.some((stage) => stage.$group);
+      if (esAgregado) {
+        return Promise.resolve([{ _id: null, total: 20 }]);
+      }
+      if (estado === 'Pendiente') {
+        return Promise.resolve([
+          { cantidad: 20, fechaInicioReal: INICIO, fechaFinReal: FIN, pedidoId: 'ped_1' },
+        ]);
+      }
+      return Promise.resolve([]); // 'En Curso'
+    });
+
+    const resultado = await desgloseStock(ITEM_ID, INICIO, FIN);
+
+    // disponible = 50 - 20 (acumulado Pendiente); aceptado lista esa misma reserva.
+    expect(resultado.disponible).toBe(30);
+    expect(resultado.aceptado).toEqual([
+      { cantidad: 20, fechaInicioReal: INICIO, fechaFinReal: FIN, pedidoId: 'ped_1' },
+    ]);
+
+    // El $match de "aceptado" (Pendiente) NO debe acotar por fechaFinReal.
+    const matchAceptado = Reserva.aggregate.mock.calls
+      .map((c) => c[0][0].$match)
+      .find((m) => m.estado === 'Pendiente');
+    expect(matchAceptado.fechaInicioReal).toEqual({ $lt: FIN });
+    expect(matchAceptado.fechaFinReal).toBeUndefined();
+  });
+
   it('el total físico excluye lotes descartados/inactivos (estado ≠ descartado)', async () => {
     mockItem({ _id: ITEM_ID, esConsumible: false });
     Lote.aggregate.mockResolvedValue([{ total: 0 }]);

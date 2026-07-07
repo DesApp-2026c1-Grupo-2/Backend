@@ -1,7 +1,6 @@
 import mongoose from "mongoose";
 import Item from "../models/item.model.js";
 import Lote from "../models/lote.model.js";
-import Actividad from "../models/actividad.model.js";
 import RecetaReactivo from "../models/recetaReactivo.model.js";
 import ProduccionReactivo from "../models/produccionReactivo.model.js";
 
@@ -128,10 +127,7 @@ export const seedInventario = async () => {
       }
     ]);
 
-    // 5. Producción histórica del reactivo (asociada a la actividad de preparación)
-    const actividades = await Actividad.find();
-    const actPrep = actividades.find(a => a.nombre === 'Preparación de Soluciones') || actividades[0];
-
+    // 5. Producción histórica del reactivo
     await ProduccionReactivo.insertMany([
       {
         reactivoId: solucionSalina._id,
@@ -140,8 +136,7 @@ export const seedInventario = async () => {
           { sustanciaId: sal._id, cantidadUsada: 10 }
         ],
         cantidadGenerada: 200,
-        fecha: dias(-50),
-        actividadId: actPrep?._id
+        fecha: dias(-50)
       }
     ]);
 

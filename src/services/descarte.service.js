@@ -5,6 +5,7 @@ import Pedido from "../models/pedido.model.js";
 import Lote from "../models/lote.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
+import { registrarMovimiento, stockFisicoItem } from "./movimientoStock.service.js";
 
 export const registrarDescarteService = async (data, usuario) => {
   const session = await mongoose.startSession();
@@ -106,6 +107,8 @@ export const registrarDescarteService = async (data, usuario) => {
       // La guarda $gte evita dejar cantidadDisponible negativo (min:0 no se valida
       // en updateOne) y surfacea una inconsistencia física real.
       if (item.esConsumible === false) {
+        const cantidadAnterior = await stockFisicoItem(itemId, session);
+
         for (const la of lotesAfectados) {
           const upd = await Lote.updateOne(
             { _id: la.loteId, cantidadDisponible: { $gte: la.cantidad } },
@@ -116,6 +119,24 @@ export const registrarDescarteService = async (data, usuario) => {
             throw new Error("Stock físico insuficiente en el lote para registrar el descarte.");
           }
         }
+
+        // Movimiento de historial: el descarte de un reutilizable es el único
+        // evento que remueve su stock físico (invariante nueva = anterior + cantidad).
+        // Los consumibles no cambian cantidadDisponible aquí (ya se consumió al
+        // ejecutarse), por lo que no generan movimiento — su registro vive en el
+        // modelo Descarte.
+        await registrarMovimiento({
+          itemId,
+          tipoMovimiento: 'DESCARTE',
+          cantidad: -cantidad,
+          cantidadAnterior,
+          cantidadNueva: cantidadAnterior - cantidad,
+          reservaId: reserva._id,
+          origenLaboratorioId: reserva.laboratorioId,
+          usuarioId: usuario.id,
+          observacion: motivo,
+          loteId: lotesAfectados.length === 1 ? lotesAfectados[0].loteId : undefined
+        }, session);
       }
     }
 
@@ -182,6 +203,8 @@ export const revertirDescarteService = async (descarteId, usuario) => {
       // (ver registrarDescarteService). Los consumibles no restaron nada.
       const item = await Item.findById(descarte.itemId).session(session);
       if (item && item.esConsumible === false && descarte.lotesAfectados) {
+        const cantidadAnterior = await stockFisicoItem(descarte.itemId, session);
+
         for (const la of descarte.lotesAfectados) {
           await Lote.updateOne(
             { _id: la.loteId },
@@ -189,6 +212,19 @@ export const revertirDescarteService = async (descarteId, usuario) => {
             { session }
           );
         }
+
+        // Movimiento reverso: repone el stock que el descarte había removido.
+        await registrarMovimiento({
+          itemId: descarte.itemId,
+          tipoMovimiento: 'AJUSTE_MANUAL',
+          cantidad: descarte.cantidad,
+          cantidadAnterior,
+          cantidadNueva: cantidadAnterior + descarte.cantidad,
+          reservaId: descarte.reservaId,
+          destinoLaboratorioId: pedido.laboratorio,
+          usuarioId: usuario.id,
+          observacion: `Reversión de descarte ${descarte._id}`
+        }, session);
       }
     }
 

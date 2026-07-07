@@ -3,6 +3,7 @@ import Reserva from "../models/reserva.model.js";
 import Item from "../models/item.model.js";
 import Lote from "../models/lote.model.js";
 import { soportaTransacciones } from "./aprobacionReserva.js";
+import { registrarMovimiento } from "./movimientoStock.service.js";
 
 /*
  * Cron de ciclo de vida de reservas.
@@ -51,9 +52,14 @@ const ejecutarConsumoFisico = async (reserva, session = null) => {
     // Reutilizables (o item ausente) no ejecutan consumo físico.
     if (!item || item.esConsumible !== true) continue;
 
+    // `activo:{ $ne:false }` alinea el consumo FIFO con la definición canónica del
+    // agregado (stockFisicoItem): un lote dado de baja lógica (activo:false) puede
+    // seguir en estado "disponible" con stock, pero NO debe consumirse ni contarse
+    // en `totalFisico` (que es el cantidadAnterior del movimiento APROBACION_RESERVA).
     const query = Lote.find({
       itemId: mat.itemId,
       estado: "disponible",
+      activo: { $ne: false },
       cantidadDisponible: { $gt: 0 },
     }).sort({ fechaVencimiento: 1, fechaCreacion: 1 });
 
@@ -82,6 +88,21 @@ const ejecutarConsumoFisico = async (reserva, session = null) => {
       restante -= usar;
     }
     mat.lotesUsados = lotesUsados;
+
+    // Movimiento de historial: egreso físico del consumible al iniciar la
+    // reserva (invariante nueva = anterior - consumido). `totalFisico` es el
+    // stock agregado del item ANTES de este consumo. Es un movimiento de sistema
+    // (sin usuarioId): lo dispara el cron, no una persona.
+    await registrarMovimiento({
+      itemId: mat.itemId,
+      tipoMovimiento: 'APROBACION_RESERVA',
+      cantidad: -mat.cantidadTotal,
+      cantidadAnterior: totalFisico,
+      cantidadNueva: totalFisico - mat.cantidadTotal,
+      reservaId: reserva._id,
+      destinoLaboratorioId: reserva.laboratorioId,
+      observacion: 'Consumo físico al iniciar la reserva'
+    }, session);
   }
 };
 

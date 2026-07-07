@@ -19,6 +19,7 @@ import produccionReactivoRouter from './routes/produccionReactivoRoutes.js';
 import reservaRoutes from './routes/reservaRoutes.js';
 import descarteRoutes from './routes/descarte.routes.js';
 import sugerenciaRecursoRouter from './routes/sugerenciaRecurso.routes.js';
+import movimientoStockRouter from './routes/movimientoStockRoutes.js';
 
 import { iniciarCronReservas } from './services/cronReservas.js';
 
@@ -43,6 +44,7 @@ app.use('/produccion-reactivos', produccionReactivoRouter);
 app.use('/reservas', reservaRoutes);
 app.use('/descartes', descarteRoutes);
 app.use('/sugerencias', sugerenciaRecursoRouter);
+app.use('/movimientos', movimientoStockRouter);
 
 app.get('/__backend-test__', (req, res) => res.json({ok: true}));
 const PORT = process.env.PORT || 3000;

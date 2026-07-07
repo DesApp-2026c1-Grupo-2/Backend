@@ -7,6 +7,7 @@ import Equipo from '../../../models/equipo.model.js';
 import Reserva from '../../../models/reserva.model.js';
 import Lote from '../../../models/lote.model.js';
 import Item from '../../../models/item.model.js';
+import { registrarMovimiento, stockFisicoItem } from '../../../services/movimientoStock.service.js';
 
 // 1. Mockeamos mongoose para poder simular las transacciones
 vi.mock('mongoose', async () => {
@@ -27,6 +28,13 @@ vi.mock('../../../models/equipo.model.js');
 vi.mock('../../../models/reserva.model.js');
 vi.mock('../../../models/lote.model.js');
 vi.mock('../../../models/item.model.js');
+
+// Mockeamos el servicio de historial: su lógica se prueba aparte; aquí solo
+// verificamos que el descarte lo invoque con el movimiento correcto.
+vi.mock('../../../services/movimientoStock.service.js', () => ({
+  registrarMovimiento: vi.fn().mockResolvedValue({}),
+  stockFisicoItem: vi.fn().mockResolvedValue(10),
+}));
 
 const createQueryMock = (resolvedValue) => ({
   session: vi.fn().mockResolvedValue(resolvedValue)
@@ -212,6 +220,17 @@ describe('registrarDescarteService', () => {
       { $inc: { cantidadDisponible: -2 } },
       { session: mockSession }
     );
+    // Registra un movimiento DESCARTE con el delta físico signado.
+    expect(registrarMovimiento).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'item_1',
+        tipoMovimiento: 'DESCARTE',
+        cantidad: -2,
+        cantidadAnterior: 10,
+        cantidadNueva: 8,
+      }),
+      mockSession
+    );
     expect(mockSession.commitTransaction).toHaveBeenCalled();
     expect(mockSession.abortTransaction).not.toHaveBeenCalled();
   });
@@ -224,6 +243,8 @@ describe('registrarDescarteService', () => {
     await registrarDescarteService(data, usuario);
 
     expect(Lote.updateOne).not.toHaveBeenCalled();
+    // Consumible: no cambia stock físico → no genera movimiento de historial.
+    expect(registrarMovimiento).not.toHaveBeenCalled();
     expect(mockSession.commitTransaction).toHaveBeenCalled();
   });
 

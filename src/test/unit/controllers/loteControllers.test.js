@@ -15,7 +15,15 @@ vi.mock('../../../models/lote.model.js', () => {
   return { default: MockLote };
 });
 
+// Historial de stock: se prueba aparte; aquí lo mockeamos para no depender de
+// Lote.aggregate y para verificar la emisión de movimientos.
+vi.mock('../../../services/movimientoStock.service.js', () => ({
+  registrarMovimiento: vi.fn().mockResolvedValue({}),
+  stockFisicoItem: vi.fn().mockResolvedValue(100),
+}));
+
 import Lote from '../../../models/lote.model.js';
+import { registrarMovimiento, stockFisicoItem } from '../../../services/movimientoStock.service.js';
 import {
   createLote,
   getLotes,
@@ -39,14 +47,25 @@ describe('loteControllers', () => {
   });
 
   describe('createLote', () => {
-    it('debe crear un nuevo lote (201)', async () => {
+    it('debe crear un nuevo lote (201) y registrar un movimiento COMPRA', async () => {
       const req = mockReq({ body: { itemId: '1', cantidadDisponible: 10, ubicacion: 'A1' } });
       const res = mockRes();
-      vi.spyOn(Lote.prototype, 'save').mockResolvedValueOnce({ _id: 'L1', ...req.body });
+      vi.spyOn(Lote.prototype, 'save').mockResolvedValueOnce({
+        _id: 'L1', itemId: '1', cantidadDisponible: 10, estado: 'disponible'
+      });
 
       await createLote(req, res);
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalled();
+      expect(registrarMovimiento).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: '1',
+          tipoMovimiento: 'COMPRA',
+          cantidad: 10,
+          cantidadNueva: 100,
+          cantidadAnterior: 90,
+        })
+      );
     });
 
     it('debe devolver error 400 si falla la creación (ej. esquema inválido)', async () => {
@@ -114,19 +133,76 @@ describe('loteControllers', () => {
   });
 
   describe('updateLote', () => {
-    it('debe actualizar el lote exitosamente (200)', async () => {
+    it('debe actualizar el lote exitosamente (200) y registrar AJUSTE_MANUAL', async () => {
       const req = mockReq({ params: { id: 'L1' }, body: { cantidadDisponible: 50 } });
       const res = mockRes();
-      Lote.findOneAndUpdate.mockReturnValue(createQueryMock({ _id: 'L1', cantidadDisponible: 50 }));
+      Lote.findOne.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'disponible', cantidadDisponible: 10 }));
+      Lote.findOneAndUpdate.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'disponible', cantidadDisponible: 50 }));
+      // Agregado antes=100, después=140 ⇒ delta +40.
+      stockFisicoItem.mockResolvedValueOnce(100).mockResolvedValueOnce(140);
 
       await updateLote(req, res);
       expect(res.status).toHaveBeenCalledWith(200);
+      expect(registrarMovimiento).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tipoMovimiento: 'AJUSTE_MANUAL',
+          cantidad: 40,
+          cantidadAnterior: 100,
+          cantidadNueva: 140,
+        })
+      );
+    });
+
+    it('registra BAJA cuando el PUT descarta un lote disponible', async () => {
+      const req = mockReq({ params: { id: 'L1' }, body: { estado: 'descartado' } });
+      const res = mockRes();
+      Lote.findOne.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'disponible', cantidadDisponible: 8 }));
+      Lote.findOneAndUpdate.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'descartado', cantidadDisponible: 8 }));
+      // Agregado antes=108, después=100 ⇒ delta -8 (el lote sale del agregado).
+      stockFisicoItem.mockResolvedValueOnce(108).mockResolvedValueOnce(100);
+
+      await updateLote(req, res);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(registrarMovimiento).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tipoMovimiento: 'BAJA',
+          cantidad: -8,
+          cantidadAnterior: 108,
+          cantidadNueva: 100,
+        })
+      );
+    });
+
+    it('registra AJUSTE_MANUAL cuando el PUT reactiva un lote descartado', async () => {
+      const req = mockReq({ params: { id: 'L1' }, body: { estado: 'disponible' } });
+      const res = mockRes();
+      Lote.findOne.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'descartado', cantidadDisponible: 8 }));
+      Lote.findOneAndUpdate.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'disponible', cantidadDisponible: 8 }));
+      // Agregado antes=100, después=108 ⇒ delta +8 (reingreso).
+      stockFisicoItem.mockResolvedValueOnce(100).mockResolvedValueOnce(108);
+
+      await updateLote(req, res);
+      expect(registrarMovimiento).toHaveBeenCalledWith(
+        expect.objectContaining({ tipoMovimiento: 'AJUSTE_MANUAL', cantidad: 8 })
+      );
+    });
+
+    it('no registra movimiento si el agregado no cambió (delta 0)', async () => {
+      const req = mockReq({ params: { id: 'L1' }, body: { ubicacion: 'Nuevo estante' } });
+      const res = mockRes();
+      Lote.findOne.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'disponible', cantidadDisponible: 10 }));
+      Lote.findOneAndUpdate.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'disponible', cantidadDisponible: 10 }));
+      stockFisicoItem.mockResolvedValueOnce(100).mockResolvedValueOnce(100);
+
+      await updateLote(req, res);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(registrarMovimiento).not.toHaveBeenCalled();
     });
 
     it('debe devolver 404 si no encuentra el lote para actualizar', async () => {
       const req = mockReq({ params: { id: 'L1' } });
       const res = mockRes();
-      Lote.findOneAndUpdate.mockReturnValue(createQueryMock(null));
+      Lote.findOne.mockReturnValue(createQueryMock(null));
 
       await updateLote(req, res);
       expect(res.status).toHaveBeenCalledWith(404);
@@ -137,13 +213,19 @@ describe('loteControllers', () => {
     it('debe marcar el lote como inactivo de forma lógica (200)', async () => {
       const req = mockReq({ params: { id: 'L1' } });
       const res = mockRes();
-      Lote.findOneAndUpdate.mockReturnValue(createQueryMock({ _id: 'L1', activo: false }));
+      Lote.findOneAndUpdate.mockReturnValue(createQueryMock({
+        _id: 'L1', itemId: 'i1', estado: 'disponible', cantidadDisponible: 8, activo: false
+      }));
 
       await deleteLote(req, res);
       expect(Lote.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: 'L1', activo: { $ne: false } },
         { activo: false },
         { new: true }
+      );
+      // El remanente disponible es el egreso físico de la baja.
+      expect(registrarMovimiento).toHaveBeenCalledWith(
+        expect.objectContaining({ tipoMovimiento: 'BAJA', cantidad: -8 })
       );
       expect(res.status).toHaveBeenCalledWith(200);
     });

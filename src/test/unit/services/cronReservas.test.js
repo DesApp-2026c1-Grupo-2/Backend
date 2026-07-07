@@ -7,10 +7,15 @@ vi.mock('../../../models/lote.model.js');
 vi.mock('../../../services/aprobacionReserva.js', () => ({
   soportaTransacciones: vi.fn().mockResolvedValue(false),
 }));
+// Historial: se prueba aparte; aquí solo verificamos que el consumo lo invoque.
+vi.mock('../../../services/movimientoStock.service.js', () => ({
+  registrarMovimiento: vi.fn().mockResolvedValue({}),
+}));
 
 import Reserva from '../../../models/reserva.model.js';
 import Item from '../../../models/item.model.js';
 import Lote from '../../../models/lote.model.js';
+import { registrarMovimiento } from '../../../services/movimientoStock.service.js';
 import {
   ConflictoEjecucionError,
   promoverReservaAEnCurso,
@@ -67,6 +72,16 @@ describe('promoverReservaAEnCurso (§6/§7/§8)', () => {
     const resultado = await promoverReservaAEnCurso('r1');
 
     expect(resultado).toBe('En Curso');
+    // El FIFO excluye lotes dados de baja lógica (activo:false), alineado con
+    // stockFisicoItem: no se consumen ni cuentan en cantidadAnterior.
+    expect(Lote.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'i1',
+        estado: 'disponible',
+        activo: { $ne: false },
+        cantidadDisponible: { $gt: 0 },
+      })
+    );
     // Decremento real por lote tocado (FIFO).
     expect(Lote.updateOne).toHaveBeenCalledWith(
       { _id: 'l1' },
@@ -83,6 +98,18 @@ describe('promoverReservaAEnCurso (§6/§7/§8)', () => {
       { loteId: 'l1', cantidad: 3 },
       { loteId: 'l2', cantidad: 2 },
     ]);
+    // Movimiento de historial: egreso físico del consumible (anterior = 3 + 10).
+    expect(registrarMovimiento).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'i1',
+        tipoMovimiento: 'APROBACION_RESERVA',
+        cantidad: -5,
+        cantidadAnterior: 13,
+        cantidadNueva: 8,
+        reservaId: 'r1',
+      }),
+      null
+    );
     expect(reserva.save).toHaveBeenCalled();
   });
 

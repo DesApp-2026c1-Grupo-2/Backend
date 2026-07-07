@@ -1,11 +1,44 @@
 import Lote from "../models/lote.model.js";
+import { registrarMovimiento, stockFisicoItem } from "../services/movimientoStock.service.js";
+
+/*
+ * Registro de historial en el CRUD de lotes (COMPRA/AJUSTE_MANUAL/BAJA).
+ * A diferencia del descarte y el consumo del cron, estos endpoints NO son
+ * transaccionales hoy, por lo que el movimiento se registra best-effort DESPUÉS
+ * del cambio físico: si el insert del historial falla, el cambio de stock ya
+ * quedó firme (mismo alcance de atomicidad que tenían estos endpoints antes de
+ * existir el historial). Se loguea el fallo sin romper la respuesta.
+ */
+const registrarMovimientoLote = async (datos) => {
+  try {
+    await registrarMovimiento(datos);
+  } catch (error) {
+    console.error("[loteControllers] no se pudo registrar el movimiento de stock:", error.message);
+  }
+};
 
 // C: Crear un nuevo lote
 const createLote = async (req, res) => {
   try {
     const nuevoLote = new Lote(req.body);
     const loteGuardado = await nuevoLote.save();
-    
+
+    // COMPRA: alta de lote que ingresa stock físico (solo si nace disponible con
+    // cantidad > 0; un lote creado ya descartado no mueve el agregado).
+    if (loteGuardado.estado === "disponible" && loteGuardado.cantidadDisponible > 0) {
+      const cantidadNueva = await stockFisicoItem(loteGuardado.itemId);
+      await registrarMovimientoLote({
+        itemId: loteGuardado.itemId,
+        tipoMovimiento: "COMPRA",
+        cantidad: loteGuardado.cantidadDisponible,
+        cantidadAnterior: cantidadNueva - loteGuardado.cantidadDisponible,
+        cantidadNueva,
+        loteId: loteGuardado._id,
+        usuarioId: req.usuario?.id,
+        observacion: "Alta de lote"
+      });
+    }
+
     return res.status(201).json(loteGuardado);
   } catch (error) {
     return res.status(400).json({ error: error.message });
@@ -38,11 +71,11 @@ const getLoteById = async (req, res) => {
     const { id } = req.params;
     const lote = await Lote.findOne({ _id: id, activo: { $ne: false } })
       .populate('itemId', 'nombre codigo tipo');
-    
+
     if (!lote) {
       return res.status(404).json({ error: "Lote no encontrado" });
     }
-    
+
     return res.status(200).json(lote);
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -53,15 +86,61 @@ const getLoteById = async (req, res) => {
 const updateLote = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
+    // Necesitamos el estado previo para calcular el delta físico del cambio.
+    const loteAnterior = await Lote.findOne({ _id: id, activo: { $ne: false } });
+    if (!loteAnterior) {
+      return res.status(404).json({ error: "Lote no encontrado" });
+    }
+
+    // Foto del agregado ANTES del update (definición canónica: stockFisicoItem).
+    const stockAntes = await stockFisicoItem(loteAnterior.itemId);
+
     const loteActualizado = await Lote.findOneAndUpdate(
       { _id: id, activo: { $ne: false } },
       req.body,
       { new: true, runValidators: true }
     );
 
-    if (!loteActualizado) {
-      return res.status(404).json({ error: "Lote no encontrado" });
+    // Registro de historial de CUALQUIER cambio del stock físico agregado, no solo
+    // los ajustes de cantidad: también las transiciones de estado disponible↔
+    // descartado (que entran/sacan el lote del agregado). El delta se calcula sobre
+    // el agregado real (stockAntes vs stockDespues), de modo que el invariante
+    // cantidadNueva = cantidadAnterior + cantidad se cumple sea cual sea el cambio.
+    // (El cambio de itemId por PUT no es un caso soportado; si ocurriera, el delta
+    // mezclaría dos items, por eso se omite el movimiento.)
+    const mismoItem =
+      String(loteAnterior.itemId) === String(loteActualizado.itemId);
+    if (mismoItem) {
+      const stockDespues = await stockFisicoItem(loteActualizado.itemId);
+      const delta = stockDespues - stockAntes;
+
+      const transicion = `${loteAnterior.estado}->${loteActualizado.estado}`;
+      // BAJA: el lote sale del agregado (disponible→descartado).
+      // AJUSTE_MANUAL: reingreso (descartado→disponible) o ajuste de cantidad
+      // mientras sigue disponible. descartado→descartado no toca el agregado.
+      const tipoPorTransicion = {
+        "disponible->descartado": "BAJA",
+        "descartado->disponible": "AJUSTE_MANUAL",
+        "disponible->disponible": "AJUSTE_MANUAL",
+      };
+      const tipoMovimiento = tipoPorTransicion[transicion];
+
+      if (tipoMovimiento && delta !== 0) {
+        await registrarMovimientoLote({
+          itemId: loteActualizado.itemId,
+          tipoMovimiento,
+          cantidad: delta,
+          cantidadAnterior: stockAntes,
+          cantidadNueva: stockDespues,
+          loteId: loteActualizado._id,
+          usuarioId: req.usuario?.id,
+          observacion:
+            tipoMovimiento === "BAJA"
+              ? "Baja de lote (descarte vía edición)"
+              : "Ajuste manual de lote"
+        });
+      }
     }
 
     return res.status(200).json(loteActualizado);
@@ -82,6 +161,22 @@ const deleteLote = async (req, res) => {
 
     if (!loteEliminado) {
       return res.status(404).json({ error: "Lote no encontrado" });
+    }
+
+    // BAJA: el lote deja de sumar al agregado. Si tenía stock disponible, ese
+    // remanente es el egreso físico (cantidad negativa).
+    if (loteEliminado.estado === "disponible" && loteEliminado.cantidadDisponible > 0) {
+      const cantidadNueva = await stockFisicoItem(loteEliminado.itemId);
+      await registrarMovimientoLote({
+        itemId: loteEliminado.itemId,
+        tipoMovimiento: "BAJA",
+        cantidad: -loteEliminado.cantidadDisponible,
+        cantidadAnterior: cantidadNueva + loteEliminado.cantidadDisponible,
+        cantidadNueva,
+        loteId: loteEliminado._id,
+        usuarioId: req.usuario?.id,
+        observacion: "Baja lógica de lote"
+      });
     }
 
     return res.status(200).json({ message: "Lote marcado como eliminado (borrado lógico)", lote: loteEliminado });

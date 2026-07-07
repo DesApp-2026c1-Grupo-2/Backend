@@ -10,6 +10,7 @@ import { seedHistorialMantenimiento } from "./historialMantenimiento.seed.js";
 import { seedSugerenciasRecurso } from "./sugerenciaRecurso.seed.js";
 import { seedReservas } from "./reserva.seed.js";
 import { seedDescartes } from "./descarte.seed.js";
+import { seedMovimientosStock } from "./movimientoStock.seed.js";
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/gestionLaboratorios";
 
@@ -30,7 +31,9 @@ const runSeeds = async () => {
     await seedPedidos();
     await seedReservas();
     await seedDescartes();
-    
+    // El historial de movimientos se reconstruye sobre el estado físico ya sembrado.
+    await seedMovimientosStock();
+
     console.log("✅ Seed general completado correctamente.");
     process.exit(0);
   } catch (error) {

@@ -2,23 +2,28 @@ import { Router } from "express";
 const router = Router()
 
 import { validate } from '../middlewares/validator.middleware.js';
-import { 
-    createEquipoSchema, 
-    updateEquipoSchema, 
-    equipoIdParamSchema, 
-    equipoQuerySchema 
+import { validarJWT, validarRol } from '../middlewares/validateJWT.js';
+import {
+    createEquipoSchema,
+    updateEquipoSchema,
+    equipoIdParamSchema,
+    equipoQuerySchema,
+    estadisticasUsoQuerySchema
 } from "../schemas/equipoSchema.js";
 
 import {deleteEquipo,
     updateEquipo,
     getEquipoById,
     getEquipos,
-    createEquipo } from '../controllers/equipoControllers.js';
+    createEquipo,
+    getEstadisticasUso } from '../controllers/equipoControllers.js';
 
-router.post("/", validate(createEquipoSchema, 'body'), createEquipo);
-router.get("/", validate(equipoQuerySchema, 'query'), getEquipos);
-router.get("/:id", validate(equipoIdParamSchema, 'params'), getEquipoById);
-router.put("/:id", validate(equipoIdParamSchema, 'params'), validate(updateEquipoSchema, 'body'), updateEquipo);
-router.delete("/:id", validate(equipoIdParamSchema, 'params'), deleteEquipo);
+// Lecturas: cualquier usuario autenticado. Mutaciones y estadísticas: PERSONAL/ADMIN.
+router.post("/", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(createEquipoSchema, 'body'), createEquipo);
+router.get("/", validarJWT, validate(equipoQuerySchema, 'query'), getEquipos);
+router.get("/estadisticas-uso", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(estadisticasUsoQuerySchema, 'query'), getEstadisticasUso);
+router.get("/:id", validarJWT, validate(equipoIdParamSchema, 'params'), getEquipoById);
+router.put("/:id", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(equipoIdParamSchema, 'params'), validate(updateEquipoSchema, 'body'), updateEquipo);
+router.delete("/:id", validarJWT, validarRol('PERSONAL', 'ADMIN'), validate(equipoIdParamSchema, 'params'), deleteEquipo);
 
 export default router;

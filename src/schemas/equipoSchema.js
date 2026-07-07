@@ -77,4 +77,25 @@ const equipoQuerySchema = Joi.object({
   laboratorioId: Joi.string().hex().length(24).allow("null").optional()
 });
 
-export { createEquipoSchema, updateEquipoSchema, equipoIdParamSchema, equipoQuerySchema };
+const estadisticasUsoQuerySchema = Joi.object({
+  periodo: Joi.string().valid("dia", "semana", "mes").default("semana"),
+  fecha: Joi.date().iso().default(() => new Date()),
+  laboratorioId: Joi.string().hex().length(24).optional().messages({
+    "string.length": "El ID del laboratorio debe tener exactamente 24 caracteres",
+    "string.hex": "El ID del laboratorio debe ser un ObjectId válido",
+  }),
+  equipoId: Joi.string().hex().length(24).optional().messages({
+    "string.length": "El ID del equipo debe tener exactamente 24 caracteres",
+    "string.hex": "El ID del equipo debe ser un ObjectId válido",
+  }),
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(10),
+});
+
+export {
+  createEquipoSchema,
+  updateEquipoSchema,
+  equipoIdParamSchema,
+  equipoQuerySchema,
+  estadisticasUsoQuerySchema,
+};

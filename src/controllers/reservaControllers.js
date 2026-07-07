@@ -77,7 +77,8 @@ const cancelarReserva = async (req, res) => {
     //    es consumible (cronReservas.ejecutarConsumoFisico). En cualquier otro
     //    caso —reserva Pendiente, o materiales reutilizables— los lotesUsados son
     //    solo punteros FIFO y nunca se restó nada: reponer inflaría el inventario.
-    if (reserva.estado === 'En Curso') {
+    const restauraStock = reserva.estado === 'En Curso';
+    if (restauraStock) {
       for (const material of reserva.materialesReservados) {
         const item = await Item.findById(material.itemId).select('esConsumible');
         if (!item || item.esConsumible !== true) continue; // reutilizable: nada que reponer
@@ -92,10 +93,16 @@ const cancelarReserva = async (req, res) => {
     // 3. Sincronizar estados (Actualizamos la reserva y rechazamos el pedido original)
     reserva.estado = 'Cancelada';
     await reserva.save();
-    
+
     await Pedido.findByIdAndUpdate(reserva.pedidoId, { estado: 'Rechazado' });
 
-    res.json({ message: "Reserva cancelada exitosamente. Se liberaron los equipos y se restauró el stock.", reserva });
+    // El stock solo se repone si la reserva estaba 'En Curso' (única situación en
+    // que hubo consumo físico); no lo afirmamos cuando no se restauró nada.
+    const message = restauraStock
+      ? "Reserva cancelada exitosamente. Se liberaron los equipos y se restauró el stock consumido."
+      : "Reserva cancelada exitosamente. Se liberaron los equipos.";
+
+    res.json({ message, reserva });
   } catch (error) {
     console.error("Error en cancelarReserva:", error);
     res.status(500).json({ error: error.message });

@@ -138,7 +138,9 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
       const stockDisponible = await calcularDisponibilidad(
         recurso.recursoId,
         inicioReal,
-        finReal
+        finReal,
+        null,
+        item // ya lo cargamos arriba: evitamos una segunda lectura del Item
       );
 
       if (stockDisponible < recurso.cantidad) {

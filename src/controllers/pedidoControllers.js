@@ -576,17 +576,12 @@ const updateEstado = async (req, res) => {
         return res.status(400).json({ error: "Solo se pueden cancelar pedidos en estado Pendiente o Aceptado." });
       }
 
-      // Si el pedido ya había sido aceptado, devolvemos el stock y cancelamos la reserva
+      // Si el pedido ya había sido aceptado, tiene una reserva bloqueando cupos temporales.
+      // Al pasarla a 'Cancelada', el motor de disponibilidad libera automáticamente
+      // los equipos y reactivos para esa ventana de tiempo.
+      // No reponemos stock físico (Lote) porque en estado 'Aceptado' la reserva
+      // sigue siendo 'Pendiente' y aún no hubo consumo material.
       if (estadoAnterior === "Aceptado") {
-        for (const r of pedido.recursos) {
-          if (r.lotesDescontados && r.lotesDescontados.length > 0) {
-            for (const loteDesc of r.lotesDescontados) {
-              await Lote.findByIdAndUpdate(loteDesc.loteId, {
-                $inc: { cantidadDisponible: loteDesc.cantidadDescontada }
-              });
-            }
-          }
-        }
         await Reserva.findOneAndUpdate(
           { pedidoId: pedido._id },
           { estado: 'Cancelada' }

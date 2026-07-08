@@ -1,6 +1,7 @@
 import Usuario from '../models/usuario.model.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { enviarMailAprobacion } from '../services/emailService.js';
 
 /**
  * Obtener todos los usuarios
@@ -11,6 +12,56 @@ const getUsuarios = async (req, res) => {
     res.status(200).json(usuarios);
   } catch (error) {
     res.status(500).json({ message: 'Error al obtener los usuarios', error: error.message });
+  }
+};
+
+/**
+ * Obtener los usuarios pendientes de aprobación
+ */
+const getUsuariosPendientes = async (req, res) => {
+  try {
+    const usuarios = await Usuario.find({
+      estado: 'PENDIENTE',
+      activo: { $ne: false }
+    });
+    res.status(200).json(usuarios);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener los usuarios pendientes', error: error.message });
+  }
+};
+
+/**
+ * Aprobar un usuario pendiente (PENDIENTE -> ACTIVO)
+ * Notifica al usuario por correo (best-effort: un fallo de mail no
+ * revierte la aprobación).
+ */
+const aprobarUsuario = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const usuario = await Usuario.findOne({ _id: id, activo: { $ne: false } });
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    if (usuario.estado !== 'PENDIENTE') {
+      return res.status(409).json({ message: 'El usuario no está pendiente de aprobación' });
+    }
+
+    usuario.estado = 'ACTIVO';
+    await usuario.save();
+
+    // Notificación por correo: best-effort, no debe romper la aprobación.
+    try {
+      await enviarMailAprobacion(usuario);
+    } catch (mailError) {
+      console.error('Error al enviar el correo de aprobación:', mailError.message);
+    }
+
+    res.status(200).json({ message: 'Usuario aprobado correctamente', usuario });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al aprobar el usuario', error: error.message });
   }
 };
 
@@ -137,7 +188,16 @@ const login = async (req, res) => {
         message: 'Credenciales inválidas'
       });
     }
-    
+
+    // Bloquear el acceso a cuentas que no estén activas (pendientes de
+    // aprobación o suspendidas).
+    if (usuario.estado !== 'ACTIVO') {
+      const mensaje = usuario.estado === 'PENDIENTE'
+        ? 'Tu cuenta está pendiente de aprobación'
+        : 'Tu cuenta se encuentra suspendida';
+
+      return res.status(403).json({ message: mensaje });
+    }
 
     // GENERAR JWT
     const token = jwt.sign(
@@ -199,10 +259,12 @@ const verify = async (req, res) => {
 
 export {
   getUsuarios,
+  getUsuariosPendientes,
   getUsuarioById,
   createUsuario,
   updateUsuario,
   deleteUsuario,
+  aprobarUsuario,
   login,
   verify,
 };

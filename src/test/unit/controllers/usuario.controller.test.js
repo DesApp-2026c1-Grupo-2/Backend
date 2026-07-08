@@ -28,14 +28,22 @@ vi.mock('../../../models/usuario.model.js', () => {
   return { default: MockUsuario };
 });
 
+// 3. Mock del servicio de correo (evita envíos reales en los tests)
+vi.mock('../../../services/emailService.js', () => ({
+  enviarMailAprobacion: vi.fn().mockResolvedValue(true)
+}));
+
 import Usuario from '../../../models/usuario.model.js';
 import jwt from 'jsonwebtoken';
+import { enviarMailAprobacion } from '../../../services/emailService.js';
 import {
   getUsuarios,
+  getUsuariosPendientes,
   getUsuarioById,
   createUsuario,
   updateUsuario,
   deleteUsuario,
+  aprobarUsuario,
   login
 } from '../../../controllers/usuario.controller.js';
 
@@ -243,7 +251,7 @@ describe('Usuario Controllers', () => {
       const req = mockReq({ body: { email: 'admin@test.com', password: 'password123' } });
       const res = mockRes();
       
-      const mockUser = new Usuario({ _id: '1', email: 'admin@test.com', rol: 'ADMIN' });
+      const mockUser = new Usuario({ _id: '1', email: 'admin@test.com', rol: 'ADMIN', estado: 'ACTIVO' });
       Usuario.findOne.mockResolvedValue(mockUser);
       // El método compararPassword ya retorna true por defecto en el mock
 
@@ -283,6 +291,108 @@ describe('Usuario Controllers', () => {
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith({ message: 'Credenciales inválidas' });
+    });
+
+    it('debe retornar 403 si la cuenta está pendiente de aprobación', async () => {
+      const req = mockReq({ body: { email: 'nuevo@test.com', password: 'password123' } });
+      const res = mockRes();
+
+      const mockUser = new Usuario({ _id: '2', email: 'nuevo@test.com', rol: 'DOCENTE', estado: 'PENDIENTE' });
+      Usuario.findOne.mockResolvedValue(mockUser); // compararPassword retorna true por defecto
+
+      await login(req, res);
+
+      expect(jwt.sign).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({ message: 'Tu cuenta está pendiente de aprobación' });
+    });
+  });
+
+  describe('getUsuariosPendientes', () => {
+    it('debe retornar los usuarios en estado PENDIENTE (200)', async () => {
+      const req = mockReq();
+      const res = mockRes();
+      const dataMock = [{ nombre: 'Ana', estado: 'PENDIENTE' }];
+
+      Usuario.find.mockResolvedValue(dataMock);
+
+      await getUsuariosPendientes(req, res);
+
+      expect(Usuario.find).toHaveBeenCalledWith({ estado: 'PENDIENTE', activo: { $ne: false } });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(dataMock);
+    });
+
+    it('debe retornar 500 ante un error de base de datos', async () => {
+      const req = mockReq();
+      const res = mockRes();
+
+      Usuario.find.mockRejectedValue(new Error('DB caída'));
+
+      await getUsuariosPendientes(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+    });
+  });
+
+  describe('aprobarUsuario', () => {
+    it('debe aprobar un usuario pendiente, enviar el mail y responder 200', async () => {
+      const req = mockReq({ params: { id: '10' } });
+      const res = mockRes();
+
+      const mockUser = new Usuario({ _id: '10', email: 'ana@test.com', nombre: 'Ana', apellido: 'Gómez', estado: 'PENDIENTE' });
+      Usuario.findOne.mockResolvedValue(mockUser);
+
+      await aprobarUsuario(req, res);
+
+      expect(Usuario.findOne).toHaveBeenCalledWith({ _id: '10', activo: { $ne: false } });
+      expect(mockUser.estado).toBe('ACTIVO');
+      expect(mockUser.save).toHaveBeenCalled();
+      expect(enviarMailAprobacion).toHaveBeenCalledWith(mockUser);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        message: 'Usuario aprobado correctamente'
+      }));
+    });
+
+    it('debe retornar 404 si el usuario no existe', async () => {
+      const req = mockReq({ params: { id: 'inexistente' } });
+      const res = mockRes();
+
+      Usuario.findOne.mockResolvedValue(null);
+
+      await aprobarUsuario(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(enviarMailAprobacion).not.toHaveBeenCalled();
+    });
+
+    it('debe retornar 409 si el usuario no está pendiente', async () => {
+      const req = mockReq({ params: { id: '10' } });
+      const res = mockRes();
+
+      const mockUser = new Usuario({ _id: '10', estado: 'ACTIVO' });
+      Usuario.findOne.mockResolvedValue(mockUser);
+
+      await aprobarUsuario(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(mockUser.save).not.toHaveBeenCalled();
+      expect(enviarMailAprobacion).not.toHaveBeenCalled();
+    });
+
+    it('debe aprobar igual aunque falle el envío del mail (best-effort)', async () => {
+      const req = mockReq({ params: { id: '10' } });
+      const res = mockRes();
+
+      const mockUser = new Usuario({ _id: '10', email: 'ana@test.com', nombre: 'Ana', apellido: 'Gómez', estado: 'PENDIENTE' });
+      Usuario.findOne.mockResolvedValue(mockUser);
+      enviarMailAprobacion.mockRejectedValueOnce(new Error('SMTP caído'));
+
+      await aprobarUsuario(req, res);
+
+      expect(mockUser.estado).toBe('ACTIVO');
+      expect(res.status).toHaveBeenCalledWith(200);
     });
   });
 });

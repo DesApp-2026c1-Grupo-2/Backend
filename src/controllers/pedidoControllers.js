@@ -604,6 +604,12 @@ const updateEstado = async (req, res) => {
       }
     );
 
+    const { estado, motivoRechazo } = req.body;
+
+    if (estado === "Rechazado") {
+      pedido.motivoRechazo = motivoRechazo || "Sin motivo especificado";
+    }
+
     await pedido.save();
 
     await pedido.populate([

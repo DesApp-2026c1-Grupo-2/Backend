@@ -11,6 +11,15 @@ vi.mock('jsonwebtoken', () => ({
   }
 }));
 
+// Query encadenable (sort/skip/limit) que resuelve al await.
+const createQueryMock = (resolvedValue) => {
+  const mockPromise = Promise.resolve(resolvedValue);
+  for (const m of ['sort', 'skip', 'limit', 'populate']) {
+    mockPromise[m] = vi.fn().mockReturnValue(mockPromise);
+  }
+  return mockPromise;
+};
+
 // 2. Mock del modelo Usuario
 vi.mock('../../../models/usuario.model.js', () => {
   const MockUsuario = function(data) {
@@ -24,7 +33,8 @@ vi.mock('../../../models/usuario.model.js', () => {
   MockUsuario.find = vi.fn();
   MockUsuario.findOne = vi.fn();
   MockUsuario.findOneAndUpdate = vi.fn();
-  
+  MockUsuario.countDocuments = vi.fn();
+
   return { default: MockUsuario };
 });
 
@@ -71,24 +81,42 @@ describe('Usuario Controllers', () => {
   });
 
   describe('getUsuarios', () => {
-    it('debe retornar la lista de usuarios activos (200)', async () => {
+    it('debe retornar la lista de usuarios activos paginada (200)', async () => {
       const req = mockReq();
       const res = mockRes();
       const dataMock = [{ nombre: 'Juan', activo: true }, { nombre: 'Maria', activo: true }];
-      
-      Usuario.find.mockResolvedValue(dataMock);
+
+      const query = createQueryMock(dataMock);
+      Usuario.find.mockReturnValue(query);
+      Usuario.countDocuments.mockResolvedValue(2);
 
       await getUsuarios(req, res);
 
       expect(Usuario.find).toHaveBeenCalledWith({ activo: { $ne: false } });
+      expect(query.skip).toHaveBeenCalledWith(0);
+      expect(query.limit).toHaveBeenCalledWith(50);
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith(dataMock);
+      expect(res.json).toHaveBeenCalledWith({ total: 2, page: 1, limit: 50, usuarios: dataMock });
+    });
+
+    it('acota el limit al máximo permitido (200) y calcula el skip', async () => {
+      const req = mockReq({ query: { limit: '9999', page: '3' } });
+      const res = mockRes();
+
+      const query = createQueryMock([]);
+      Usuario.find.mockReturnValue(query);
+      Usuario.countDocuments.mockResolvedValue(0);
+
+      await getUsuarios(req, res);
+
+      expect(query.limit).toHaveBeenCalledWith(200);
+      expect(query.skip).toHaveBeenCalledWith(400); // (3-1)*200
     });
 
     it('debe retornar un error 500 si falla la consulta a BD', async () => {
       const req = mockReq();
       const res = mockRes();
-      Usuario.find.mockRejectedValue(new Error('Error de conexión'));
+      Usuario.find.mockImplementation(() => { throw new Error('Error de conexión'); });
 
       await getUsuarios(req, res);
 
@@ -309,25 +337,29 @@ describe('Usuario Controllers', () => {
   });
 
   describe('getUsuariosPendientes', () => {
-    it('debe retornar los usuarios en estado PENDIENTE (200)', async () => {
+    it('debe retornar los usuarios en estado PENDIENTE paginados (200)', async () => {
       const req = mockReq();
       const res = mockRes();
       const dataMock = [{ nombre: 'Ana', estado: 'PENDIENTE' }];
 
-      Usuario.find.mockResolvedValue(dataMock);
+      const query = createQueryMock(dataMock);
+      Usuario.find.mockReturnValue(query);
+      Usuario.countDocuments.mockResolvedValue(1);
 
       await getUsuariosPendientes(req, res);
 
       expect(Usuario.find).toHaveBeenCalledWith({ estado: 'PENDIENTE', activo: { $ne: false } });
+      expect(query.skip).toHaveBeenCalledWith(0);
+      expect(query.limit).toHaveBeenCalledWith(50);
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith(dataMock);
+      expect(res.json).toHaveBeenCalledWith({ total: 1, page: 1, limit: 50, usuarios: dataMock });
     });
 
     it('debe retornar 500 ante un error de base de datos', async () => {
       const req = mockReq();
       const res = mockRes();
 
-      Usuario.find.mockRejectedValue(new Error('DB caída'));
+      Usuario.find.mockImplementation(() => { throw new Error('DB caída'); });
 
       await getUsuariosPendientes(req, res);
 

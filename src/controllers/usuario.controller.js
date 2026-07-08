@@ -3,28 +3,57 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { enviarMailAprobacion } from '../services/emailService.js';
 
+const LIMIT_DEFAULT = 50;
+const LIMIT_MAX = 200;
+
+// Normaliza page/limit de la query a enteros acotados (evita traer la colección
+// completa). Devuelve { page, limit, skip }.
+const parsePaginacion = (query) => {
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const limitPedido = parseInt(query.limit, 10) || LIMIT_DEFAULT;
+  const limit = Math.min(Math.max(1, limitPedido), LIMIT_MAX);
+  return { page, limit, skip: (page - 1) * limit };
+};
+
 /**
- * Obtener todos los usuarios
+ * Obtener todos los usuarios (paginado)
  */
 const getUsuarios = async (req, res) => {
   try {
-    const usuarios = await Usuario.find({ activo: { $ne: false } });
-    res.status(200).json(usuarios);
+    const filtros = { activo: { $ne: false } };
+    const { page, limit, skip } = parsePaginacion(req.query);
+
+    const [usuarios, total] = await Promise.all([
+      Usuario.find(filtros)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Usuario.countDocuments(filtros)
+    ]);
+
+    res.status(200).json({ total, page, limit, usuarios });
   } catch (error) {
     res.status(500).json({ message: 'Error al obtener los usuarios', error: error.message });
   }
 };
 
 /**
- * Obtener los usuarios pendientes de aprobación
+ * Obtener los usuarios pendientes de aprobación (paginado)
  */
 const getUsuariosPendientes = async (req, res) => {
   try {
-    const usuarios = await Usuario.find({
-      estado: 'PENDIENTE',
-      activo: { $ne: false }
-    });
-    res.status(200).json(usuarios);
+    const filtros = { estado: 'PENDIENTE', activo: { $ne: false } };
+    const { page, limit, skip } = parsePaginacion(req.query);
+
+    const [usuarios, total] = await Promise.all([
+      Usuario.find(filtros)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Usuario.countDocuments(filtros)
+    ]);
+
+    res.status(200).json({ total, page, limit, usuarios });
   } catch (error) {
     res.status(500).json({ message: 'Error al obtener los usuarios pendientes', error: error.message });
   }

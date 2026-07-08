@@ -26,61 +26,57 @@ const verificarConflictos = async (pedido) => {
       mensaje: "El pedido no tiene un laboratorio asignado. Debe asignarse uno antes de aprobar.",
     });
   } else {
+    const laboratorio = await Laboratorio.findById(pedido.laboratorio);
 
-  const laboratorio = await Laboratorio.findById(
-    pedido.laboratorio
-  );
-
-  if (!laboratorio) {
-    conflictos.push({
-      tipo: "laboratorio_no_existente",
-      severidad: "alta",
-      mensaje: "El laboratorio solicitado no existe",
-    });
-  } else {
-    if (pedido.alumnos > laboratorio.capacidad) {
+    if (!laboratorio) {
       conflictos.push({
-        tipo: "pedido_sobredimensionado",
+        tipo: "laboratorio_no_existente",
         severidad: "alta",
-        mensaje:
-          `Capacidad del laboratorio: ${laboratorio.capacidad}. ` +
-          `Alumnos solicitados: ${pedido.alumnos}.`,
+        mensaje: "El laboratorio solicitado no existe",
       });
-    }
-
-    if (
-      laboratorio.estado === "en mantenimiento" ||
-      laboratorio.estado === "fuera de servicio"
-    ) {
-      conflictos.push({
-        tipo: "laboratorio_no_disponible",
-        severidad: "alta",
-        mensaje:
-          `El laboratorio se encuentra en estado "${laboratorio.estado}".`,
-      });
-    }
-
-    if (inicioReal && finReal) {
-      const pedidoExistente = await Pedido.findOne({
-        _id: { $ne: pedido._id },
-        laboratorio: pedido.laboratorio,
-        fechaInicioReal: { $lt: finReal },
-        fechaFinReal: { $gt: inicioReal },
-        estado: {
-          $in: ["Pendiente", "Aceptado"], // CAMBIO: Eliminado "En Revisión"
-        },
-      });
-
-      if (pedidoExistente) {
+    } else {
+      if (pedido.alumnos > laboratorio.capacidad) {
         conflictos.push({
-          tipo: "laboratorio_ocupado",
+          tipo: "pedido_sobredimensionado",
           severidad: "alta",
           mensaje:
-            "Ya existe un pedido para ese laboratorio en el horario solicitado (incluyendo el período de uso).",
+            `Capacidad del laboratorio: ${laboratorio.capacidad}. ` +
+            `Alumnos solicitados: ${pedido.alumnos}.`,
         });
       }
+
+      if (
+        laboratorio.estado === "en mantenimiento" ||
+        laboratorio.estado === "fuera de servicio"
+      ) {
+        conflictos.push({
+          tipo: "laboratorio_no_disponible",
+          severidad: "alta",
+          mensaje: `El laboratorio se encuentra en estado "${laboratorio.estado}".`,
+        });
+      }
+
+      if (inicioReal && finReal) {
+        const pedidoExistente = await Pedido.findOne({
+          _id: { $ne: pedido._id },
+          laboratorio: pedido.laboratorio,
+          fechaInicioReal: { $lt: finReal },
+          fechaFinReal: { $gt: inicioReal },
+          estado: {
+            $in: ["Pendiente", "Aceptado"],
+          },
+        });
+
+        if (pedidoExistente) {
+          conflictos.push({
+            tipo: "laboratorio_ocupado",
+            severidad: "alta",
+            mensaje:
+              "Ya existe un pedido para ese laboratorio en el horario solicitado (incluyendo el período de uso).",
+          });
+        }
+      }
     }
-  }
   }
 
   // =========================
@@ -103,9 +99,36 @@ const verificarConflictos = async (pedido) => {
           severidad: "alta",
           mensaje: "El equipo solicitado no existe",
         });
-
         continue;
       }
+
+      // ----------------------------------------------------
+      // NUEVA LOGICA: Validación de Equipos Fijos
+      // ----------------------------------------------------
+      if (equipo.esFijo) {
+        const idLaboratorioPedido = pedido.laboratorio?._id?.toString() || pedido.laboratorio?.toString();
+        const idLaboratorioEquipo = equipo.laboratorio?._id?.toString() || equipo.laboratorio?.toString();
+
+        // Regra 3: Impedir selección de equipos fijos sin laboratorio asociado
+        if (!idLaboratorioEquipo) {
+          conflictos.push({
+            tipo: "equipo_fijo_sin_laboratorio",
+            severidad: "alta",
+            mensaje: `El equipo fijo "${equipo.nombre}" no tiene un laboratorio de origen asignado en el sistema.`,
+          });
+          continue; // Si no tiene lab de origen, saltamos las siguientes validaciones de lab
+        }
+
+        // Reglas 1 y 2: Equipos fijos de otro laboratorio / Incompatibilidades de asignación
+        if (!idLaboratorioPedido || idLaboratorioEquipo !== idLaboratorioPedido) {
+          conflictos.push({
+            tipo: "incompatibilidad_equipo_fijo",
+            severidad: "alta",
+            mensaje: `El equipo "${equipo.nombre}" pertenece fijamente a otro laboratorio. No se puede asignar a este aula.`,
+          });
+        }
+      }
+      // ----------------------------------------------------
 
       let equipoConflictoDetectado = false;
 
@@ -142,9 +165,6 @@ const verificarConflictos = async (pedido) => {
     // =========================
 
     if (ref === "Item") {
-      // Disponibilidad por rango horario (docs/stock-disponibilidad-temporal.md §3).
-      // Si el pedido aún no tiene ventana calculable, caemos al conteo global
-      // (sin acotar por horario) usando toda la ventana disponible.
       const stockDisponible =
         inicioReal && finReal
           ? await calcularDisponibilidad(r.recursoId, inicioReal, finReal)

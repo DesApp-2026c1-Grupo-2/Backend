@@ -1,6 +1,7 @@
 import Pedido from "../models/pedido.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
+import Lote from "../models/lote.model.js"; // <-- Agregado para que no falle el descarte de stock
 import { verificarConflictos } from "../services/pedidoConflictos.js";
 import Reserva from "../models/reserva.model.js";
 import { calcularVentana } from "../services/fechasReserva.js";
@@ -28,7 +29,7 @@ const getPedidos = async (req, res) => {
       .populate("laboratorio", "nombre tipo")
       .populate({
         path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado",
+        select: "nombre tipo codigo esFijo estado laboratorio",
       })
       .populate({
         path: "comentarios.usuario",
@@ -72,7 +73,7 @@ const getPedidoById = async (req, res) => {
       .populate("laboratorio", "nombre tipo")
       .populate({
         path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado",
+        select: "nombre tipo codigo esFijo estado laboratorio",
       })
       .populate({
         path: "comentarios.usuario",
@@ -119,12 +120,8 @@ const aprobarPedido = async (req, res) => {
       return res.status(400).json({ error: "El pedido ya fue aceptado previamente y sus recursos ya fueron descontados." });
     }
 
-    // Auto-sanación: si un intento previo creó la reserva pero no llegó a persistir
-    // el pedido (quedó Pendiente), esa reserva es huérfana y bloquearía el reintento
-    // por el índice único de pedidoId. La eliminamos antes de recrear.
     await Reserva.deleteOne({ pedidoId: pedido._id });
 
-    // 1. Doble verificación de disponibilidad antes de mutar (para evitar descuentos parciales)
     const conflictos = await verificarConflictos(pedido);
 
     const conflictosGraves = conflictos.filter(
@@ -138,11 +135,6 @@ const aprobarPedido = async (req, res) => {
       });
     }
 
-    // 2. Armar checklist y los materiales/equipos de la reserva.
-    //    NUEVO MODELO (docs/stock-disponibilidad-temporal.md §3): la aprobación
-    //    NO decrementa cantidadDisponible. Para materiales solo se asignan
-    //    punteros FIFO de lotes (trazabilidad para descartes) sin tocar stock.
-    //    El decremento físico de consumibles ocurre al pasar a "En Curso" (§7).
     const checklist = [];
     let requiereCarrito = false;
     const equiposReservados = [];
@@ -183,7 +175,6 @@ const aprobarPedido = async (req, res) => {
           }
         }
 
-        // Punteros FIFO sin decrementar stock (invariante §3.1).
         const lotesUsados = await asignarLotesFIFO(r.recursoId, r.cantidad);
         materialesReservados.push({
           itemId: r.recursoId,
@@ -200,9 +191,6 @@ const aprobarPedido = async (req, res) => {
       });
     }
 
-    // 3. Crear la Reserva con gate de disponibilidad anti-write-skew (§5).
-    //    Se hace ANTES de mutar el pedido: si no alcanza el stock, el pedido
-    //    queda intacto en "Pendiente".
     const { inicio, fin } = calcularVentana(pedido.fechaHora, pedido.duracionClase);
     let nuevaReserva;
     try {
@@ -236,7 +224,6 @@ const aprobarPedido = async (req, res) => {
       throw error;
     }
 
-    // 4. Actualizar estado del pedido (reserva ya creada con éxito).
     pedido.estado = "Aceptado";
 
     registrarHistorial(
@@ -257,17 +244,14 @@ const aprobarPedido = async (req, res) => {
     try {
       pedidoAprobado = await pedido.save();
     } catch (saveErr) {
-      // Compensación: la reserva ya se creó; si el pedido no pudo persistirse,
-      // eliminamos la reserva para no dejar un huérfano que trabe reintentos.
       await Reserva.deleteOne({ _id: nuevaReserva._id });
       throw saveErr;
     }
 
-    // Poblamos para devolver el objeto completo al frontend
     await pedidoAprobado.populate([
       { path: "docente", select: "nombre apellido email" },
       { path: "laboratorio", select: "nombre tipo" },
-      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" }
+      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado laboratorio" }
     ]);
 
     res.json({ message: "Pedido aprobado. Reserva creada y disponibilidad confirmada.", pedido: pedidoAprobado, reservaId: nuevaReserva._id });
@@ -279,6 +263,7 @@ const aprobarPedido = async (req, res) => {
 const finalizarPedido = async (req, res) => {
   try {
     const { id } = req.params;
+    const { descartes, desperfectos } = req.body; 
     
     const pedido = await Pedido.findById(id);
     if (!pedido) {
@@ -289,35 +274,47 @@ const finalizarPedido = async (req, res) => {
       return res.status(400).json({ error: "El pedido debe estar en estado 'Aceptado' para poder finalizarse." });
     }
 
-    // NUEVO MODELO (docs/stock-disponibilidad-temporal.md §10): no hay devolución
-    // de stock en la finalización.
-    //  - Reutilizables: nunca se decrementó cantidadDisponible (son puramente
-    //    temporales), así que no se repone nada.
-    //  - Consumibles: el stock se consumió al ejecutarse y no vuelve.
-    // La finalización solo cierra el pedido y sincroniza la reserva.
+    // 1. Registrar Descartes de Materiales/Reactivos (Baja física en Lotes)
+    if (descartes && descartes.length > 0) {
+      for (const descarte of descartes) {
+        await Lote.findByIdAndUpdate(descarte.loteId, {
+          $inc: { cantidadDisponible: -descarte.cantidadADescartar }
+        });
+        
+        // Guardamos constancia en texto dentro de detalleProblemas respetando tu Schema estricto
+        pedido.detalleProblemas.push(
+          `Descarte - Lote ID: ${descarte.loteId}, Cantidad: ${descarte.cantidadADescartar}, Motivo: ${descarte.motivo || "No especificado"}`
+        );
+      }
+    }
 
-    // Actualizar estado del pedido
+    // 2. Registrar Desperfectos de Equipos (Cambiar estado a 'Mantenimiento')
+    if (desperfectos && desperfectos.length > 0) {
+      for (const equipoId of desperfectos) {
+        await Equipo.findByIdAndUpdate(equipoId, { estado: "Mantenimiento" }); 
+        pedido.detalleProblemas.push(`Desperfecto - Equipo ID: ${equipoId} enviado a Mantenimiento.`);
+      }
+    }
+
+    // 3. Guardar cambios de estado e historial
     pedido.estado = "Finalizado";
 
     registrarHistorial(
       pedido,
       req.usuario.id,
       "FINALIZACION",
-      "Pedido finalizado",
-      {
-        estado: {
-          antes: "Aceptado",
-          despues: "Finalizado"
-        }
+      "Pedido finalizado con reporte de uso.",
+      { 
+        cambios: { 
+          estado: { antes: "Aceptado", despues: "Finalizado" },
+          reporteFinal: { descartes, desperfectos } // Se guarda seguro acá porque cambios es Tipo Mixed
+        } 
       }
     );
 
     const pedidoFinalizado = await pedido.save();
-
-    await Reserva.findOneAndUpdate(
-      { pedidoId: pedido._id },
-      { estado: 'Finalizada' }
-    );
+    
+    await Reserva.findOneAndUpdate({ pedidoId: pedido._id }, { estado: 'Finalizada' });
 
     await pedidoFinalizado.populate([
       { path: "docente", select: "nombre apellido email" },
@@ -325,7 +322,7 @@ const finalizarPedido = async (req, res) => {
       { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" }
     ]);
 
-    res.json({ message: "Pedido finalizado. Equipos devueltos a estado disponible.", pedido: pedidoFinalizado });
+    res.json({ message: "Pedido finalizado y novedades registradas.", pedido: pedidoFinalizado });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -335,8 +332,6 @@ const createPedido = async (req, res) => {
   try {
     const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
     
-    // La fechaHora ya viene construida y validada desde el middleware validatePedidos.
-    // Guarda defensiva: sin ella calcularVentana fallaría con un error críptico.
     const fechaHora = req.body.fechaHora;
 
     if (!fechaHora) {
@@ -345,7 +340,7 @@ const createPedido = async (req, res) => {
 
     if (!validarAnticipacionPedido(fechaHora)) {
       return res.status(400).json({
-        error: "No se pueden crear pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas"
+        error: "No se pueden crear pedidos con menos de 2 hours de anticipación el mismo día o en fechas pasadas"
       });
     }
 
@@ -380,7 +375,7 @@ const createPedido = async (req, res) => {
     await nuevo.populate([
       { path: "docente", select: "nombre apellido email" },
       { path: "laboratorio", select: "nombre tipo" },
-      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" }
+      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado laboratorio" }
     ]);
 
     res.status(201).json(nuevo);
@@ -416,7 +411,7 @@ const updatePedido = async (req, res) => {
     if (fechaBase && !validarAnticipacionPedido(new Date(fechaBase))) {
       return res.status(400).json({
         error:
-          "No se pueden actualizar pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas"
+          "No se pueden actualizar pedidos con menos de 2 hours de anticipación el mismo día o en fechas pasadas"
       });
     }
 
@@ -512,7 +507,7 @@ const updatePedido = async (req, res) => {
         req.usuario.id,
         "MODIFICACION",
         "Se modificó el pedido",
-        cambios
+        changes
       );
     }
 
@@ -524,7 +519,7 @@ const updatePedido = async (req, res) => {
     await pedidoDoc.populate("laboratorio", "nombre tipo");
     await pedidoDoc.populate({
       path: "recursos.recursoId",
-      select: "nombre tipo codigo esFijo estado"
+      select: "nombre tipo codigo esFijo estado laboratorio",
     });
 
     res.json(pedidoDoc);
@@ -537,7 +532,7 @@ const updatePedido = async (req, res) => {
 const updateEstado = async (req, res) => {
   try {
     const { id } = req.params;
-    const { estado } = req.body;
+    const { estado, motivoRechazo } = req.body; // <-- Corregido: extraemos todo acá arriba juntos
 
     const estadosValidos = [
       "Pendiente",
@@ -570,17 +565,11 @@ const updateEstado = async (req, res) => {
 
     const estadoAnterior = pedido.estado;
 
-    // Lógica para Cancelación de pedidos
     if (estado === "Cancelado") {
       if (!["Pendiente", "Aceptado"].includes(estadoAnterior)) {
         return res.status(400).json({ error: "Solo se pueden cancelar pedidos en estado Pendiente o Aceptado." });
       }
 
-      // Si el pedido ya había sido aceptado, tiene una reserva bloqueando cupos temporales.
-      // Al pasarla a 'Cancelada', el motor de disponibilidad libera automáticamente
-      // los equipos y reactivos para esa ventana de tiempo.
-      // No reponemos stock físico (Lote) porque en estado 'Aceptado' la reserva
-      // sigue siendo 'Pendiente' y aún no hubo consumo material.
       if (estadoAnterior === "Aceptado") {
         await Reserva.findOneAndUpdate(
           { pedidoId: pedido._id },
@@ -591,11 +580,15 @@ const updateEstado = async (req, res) => {
 
     pedido.estado = estado;
 
+    if (estado === "Rechazado") {
+      pedido.motivoRechazo = motivoRechazo || "Sin motivo especificado";
+    }
+
     registrarHistorial(
       pedido,
       req.usuario.id,
       "CAMBIO_ESTADO",
-      `Estado cambiado de "${estadoAnterior}" a "${estado}"`,
+      `Estado cambiado de "${estadoAnterior}" a "${estado}"` + (estado === "Rechazado" ? `. Motivo: ${pedido.motivoRechazo}` : ""),
       {
         estado: {
           antes: estadoAnterior,
@@ -603,12 +596,6 @@ const updateEstado = async (req, res) => {
         }
       }
     );
-
-    const { estado, motivoRechazo } = req.body;
-
-    if (estado === "Rechazado") {
-      pedido.motivoRechazo = motivoRechazo || "Sin motivo especificado";
-    }
 
     await pedido.save();
 
@@ -623,7 +610,7 @@ const updateEstado = async (req, res) => {
       },
       {
         path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado"
+        select: "nombre tipo codigo esFijo estado laboratorio",
       }
     ]);
 
@@ -670,7 +657,6 @@ const borrarPedidoLogico = async (req, res) => {
     });
   }
 };
-
 
 const agregarComentario = async (req, res) => {
   try {
@@ -754,6 +740,32 @@ const marcarComentariosVistos = async (req, res) => {
 
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+export const updateChecklist = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { checklist } = req.body; // Recibe el array modificado desde el frontend
+
+    // Actualizamos el campo checklist y devolvemos el pedido actualizado
+    // Nota: Agregá los .populate() que uses normalmente en tu "getPedidoById" 
+    // para que la UI no pierda los datos de docente o laboratorio al refrescar el estado.
+    const pedidoActualizado = await Pedido.findByIdAndUpdate(
+      id,
+      { $set: { checklist } },
+      { new: true }
+    ).populate("docente").populate("laboratorio"); 
+
+    if (!pedidoActualizado) {
+      return res.status(404).json({ error: "Pedido no encontrado" });
+    }
+
+    // Devolvemos el pedido completo para que el frontend actualice su estado local
+    res.json(pedidoActualizado);
+  } catch (error) {
+    console.error("Error al actualizar checklist:", error);
+    res.status(500).json({ error: "Error interno al actualizar la checklist" });
   }
 };
 

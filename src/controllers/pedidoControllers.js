@@ -507,7 +507,7 @@ const updatePedido = async (req, res) => {
         req.usuario.id,
         "MODIFICACION",
         "Se modificó el pedido",
-        changes
+        cambios
       );
     }
 

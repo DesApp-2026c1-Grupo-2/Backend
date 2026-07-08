@@ -120,6 +120,10 @@ const pedidoSchema = new mongoose.Schema({
     enum: ["Pendiente", "Aceptado", "Rechazado", "Finalizado", "Cancelado", "Expirado"],
     default: "Pendiente",
   },
+  motivoRechazo: {
+    type: String,
+    default: null
+  },
   recursos: [recursoSchema],
   detalleProblemas: {
     type: [String],

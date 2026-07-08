@@ -1,7 +1,7 @@
 import { Router } from 'express';
 const router = Router();
 
-import { validarJWT } from '../middlewares/validateJWT.js';
+import { validarJWT, validarRol } from '../middlewares/validateJWT.js';
 import { validate } from '../middlewares/validator.middleware.js';
 import {
   createUsuarioSchema,
@@ -11,10 +11,12 @@ import {
 
 import {
   getUsuarios,
+  getUsuariosPendientes,
   getUsuarioById,
   createUsuario,
   updateUsuario,
   deleteUsuario,
+  aprobarUsuario,
   login,
   verify
 } from '../controllers/usuario.controller.js';
@@ -27,6 +29,13 @@ router.get('/verify', validarJWT, verify);
 
 // Rutas CRUD para Usuarios
 router.get('/', validarJWT, getUsuarios);
+
+// Usuarios pendientes de aprobación (debe ir ANTES de '/:id' para que
+// Express no lo tome como un id)
+router.get('/pendientes', validarJWT, validarRol('ADMIN'), getUsuariosPendientes);
+
+// Aprobar un usuario pendiente
+router.patch('/:id/aprobar', validarJWT, validarRol('ADMIN'), aprobarUsuario);
 
 router.get('/:id', validarJWT, getUsuarioById);
 

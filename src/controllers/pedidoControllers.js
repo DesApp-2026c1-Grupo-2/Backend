@@ -1,6 +1,7 @@
 import Pedido from "../models/pedido.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
+import Lote from "../models/lote.model.js"; // <-- Agregado para que no falle el descarte de stock
 import { verificarConflictos } from "../services/pedidoConflictos.js";
 import Reserva from "../models/reserva.model.js";
 import { calcularVentana } from "../services/fechasReserva.js";
@@ -11,6 +12,7 @@ import {
 } from "../services/aprobacionReserva.js";
 import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
 import { registrarHistorial } from "../services/pedidoHistorial.js";
+import { registrarDescarteService } from "../services/descarte.service.js";
 import isEqual from "lodash.isequal";
 
 const getPedidos = async (req, res) => {
@@ -28,7 +30,7 @@ const getPedidos = async (req, res) => {
       .populate("laboratorio", "nombre tipo")
       .populate({
         path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado",
+        select: "nombre tipo codigo esFijo estado laboratorio",
       })
       .populate({
         path: "comentarios.usuario",
@@ -72,7 +74,7 @@ const getPedidoById = async (req, res) => {
       .populate("laboratorio", "nombre tipo")
       .populate({
         path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado",
+        select: "nombre tipo codigo esFijo estado laboratorio",
       })
       .populate({
         path: "comentarios.usuario",
@@ -119,12 +121,8 @@ const aprobarPedido = async (req, res) => {
       return res.status(400).json({ error: "El pedido ya fue aceptado previamente y sus recursos ya fueron descontados." });
     }
 
-    // Auto-sanación: si un intento previo creó la reserva pero no llegó a persistir
-    // el pedido (quedó Pendiente), esa reserva es huérfana y bloquearía el reintento
-    // por el índice único de pedidoId. La eliminamos antes de recrear.
     await Reserva.deleteOne({ pedidoId: pedido._id });
 
-    // 1. Doble verificación de disponibilidad antes de mutar (para evitar descuentos parciales)
     const conflictos = await verificarConflictos(pedido);
 
     const conflictosGraves = conflictos.filter(
@@ -138,11 +136,6 @@ const aprobarPedido = async (req, res) => {
       });
     }
 
-    // 2. Armar checklist y los materiales/equipos de la reserva.
-    //    NUEVO MODELO (docs/stock-disponibilidad-temporal.md §3): la aprobación
-    //    NO decrementa cantidadDisponible. Para materiales solo se asignan
-    //    punteros FIFO de lotes (trazabilidad para descartes) sin tocar stock.
-    //    El decremento físico de consumibles ocurre al pasar a "En Curso" (§7).
     const checklist = [];
     let requiereCarrito = false;
     const equiposReservados = [];
@@ -183,7 +176,6 @@ const aprobarPedido = async (req, res) => {
           }
         }
 
-        // Punteros FIFO sin decrementar stock (invariante §3.1).
         const lotesUsados = await asignarLotesFIFO(r.recursoId, r.cantidad);
         materialesReservados.push({
           itemId: r.recursoId,
@@ -200,9 +192,6 @@ const aprobarPedido = async (req, res) => {
       });
     }
 
-    // 3. Crear la Reserva con gate de disponibilidad anti-write-skew (§5).
-    //    Se hace ANTES de mutar el pedido: si no alcanza el stock, el pedido
-    //    queda intacto en "Pendiente".
     const { inicio, fin } = calcularVentana(pedido.fechaHora, pedido.duracionClase);
     let nuevaReserva;
     try {
@@ -236,7 +225,6 @@ const aprobarPedido = async (req, res) => {
       throw error;
     }
 
-    // 4. Actualizar estado del pedido (reserva ya creada con éxito).
     pedido.estado = "Aceptado";
 
     registrarHistorial(
@@ -257,17 +245,14 @@ const aprobarPedido = async (req, res) => {
     try {
       pedidoAprobado = await pedido.save();
     } catch (saveErr) {
-      // Compensación: la reserva ya se creó; si el pedido no pudo persistirse,
-      // eliminamos la reserva para no dejar un huérfano que trabe reintentos.
       await Reserva.deleteOne({ _id: nuevaReserva._id });
       throw saveErr;
     }
 
-    // Poblamos para devolver el objeto completo al frontend
     await pedidoAprobado.populate([
       { path: "docente", select: "nombre apellido email" },
       { path: "laboratorio", select: "nombre tipo" },
-      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" }
+      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado laboratorio" }
     ]);
 
     res.json({ message: "Pedido aprobado. Reserva creada y disponibilidad confirmada.", pedido: pedidoAprobado, reservaId: nuevaReserva._id });
@@ -279,7 +264,8 @@ const aprobarPedido = async (req, res) => {
 const finalizarPedido = async (req, res) => {
   try {
     const { id } = req.params;
-    
+    const { descartes = [], desperfectos = [] } = req.body;
+
     const pedido = await Pedido.findById(id);
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
@@ -289,45 +275,71 @@ const finalizarPedido = async (req, res) => {
       return res.status(400).json({ error: "El pedido debe estar en estado 'Aceptado' para poder finalizarse." });
     }
 
-    // NUEVO MODELO (docs/stock-disponibilidad-temporal.md §10): no hay devolución
-    // de stock en la finalización.
-    //  - Reutilizables: nunca se decrementó cantidadDisponible (son puramente
-    //    temporales), así que no se repone nada.
-    //  - Consumibles: el stock se consumió al ejecutarse y no vuelve.
-    // La finalización solo cierra el pedido y sincroniza la reserva.
+    const detalleProblemas = [...(pedido.detalleProblemas || [])];
 
-    // Actualizar estado del pedido
+    for (const descarte of descartes) {
+      const tipo = descarte.tipo || "material";
+      const payload = {
+        pedidoId: id,
+        tipo,
+        itemId: descarte.itemId,
+        equipoId: descarte.equipoId,
+        cantidad: Number(descarte.cantidad || 1),
+        motivo: descarte.motivo || "Finalización de pedido",
+      };
+
+      await registrarDescarteService(payload, req.usuario);
+
+      if (tipo === "equipo") {
+        detalleProblemas.push(`Desperfecto - Equipo ID: ${descarte.equipoId} enviado a mantenimiento.`);
+      } else {
+        detalleProblemas.push(`Descarte - ${tipo}: ${descarte.itemId}, Cantidad: ${payload.cantidad}, Motivo: ${payload.motivo}`);
+      }
+    }
+
+    for (const desperfecto of desperfectos) {
+      const equipoId = typeof desperfecto === "string" ? desperfecto : desperfecto?.equipoId;
+      const motivo = typeof desperfecto === "string"
+        ? "Desperfecto informado al finalizar el pedido"
+        : (desperfecto?.motivo || "Desperfecto informado al finalizar el pedido");
+
+      if (!equipoId) continue;
+
+      await registrarDescarteService({
+        pedidoId: id,
+        tipo: "equipo",
+        equipoId,
+        cantidad: 1,
+        motivo,
+      }, req.usuario);
+      detalleProblemas.push(`Desperfecto - Equipo ID: ${equipoId} enviado a mantenimiento.`);
+    }
+
+    pedido.detalleProblemas = detalleProblemas;
     pedido.estado = "Finalizado";
 
     registrarHistorial(
       pedido,
       req.usuario.id,
       "FINALIZACION",
-      "Pedido finalizado",
+      "Pedido finalizado con reporte de uso.",
       {
-        estado: {
-          antes: "Aceptado",
-          despues: "Finalizado"
-        }
+        estado: { antes: "Aceptado", despues: "Finalizado" },
+        reporteFinal: { descartes, desperfectos },
       }
     );
 
     const pedidoFinalizado = await pedido.save();
 
-    // 3. Sincronizar el estado de la Reserva asociada
-    await Reserva.findOneAndUpdate(
-      { pedidoId: pedido._id },
-      { estado: 'Finalizada' }
-    );
+    await Reserva.findOneAndUpdate({ pedidoId: pedido._id }, { estado: "Finalizada" });
 
-    // Poblamos para devolver el objeto completo al frontend
     await pedidoFinalizado.populate([
       { path: "docente", select: "nombre apellido email" },
       { path: "laboratorio", select: "nombre tipo" },
-      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" }
+      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" },
     ]);
 
-    res.json({ message: "Pedido finalizado. Equipos devueltos a estado disponible.", pedido: pedidoFinalizado });
+    res.json({ message: "Pedido finalizado y novedades registradas.", pedido: pedidoFinalizado });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -337,8 +349,6 @@ const createPedido = async (req, res) => {
   try {
     const { fecha, hora, fechaInicioReal, fechaFinReal, ...resto } = req.body;
     
-    // La fechaHora ya viene construida y validada desde el middleware validatePedidos.
-    // Guarda defensiva: sin ella calcularVentana fallaría con un error críptico.
     const fechaHora = req.body.fechaHora;
 
     if (!fechaHora) {
@@ -379,11 +389,10 @@ const createPedido = async (req, res) => {
 
     const nuevo = await pedido.save();
 
-    // Poblamos el pedido recién creado antes de devolverlo
     await nuevo.populate([
       { path: "docente", select: "nombre apellido email" },
       { path: "laboratorio", select: "nombre tipo" },
-      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" }
+      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado laboratorio" }
     ]);
 
     res.status(201).json(nuevo);
@@ -399,9 +408,6 @@ const updatePedido = async (req, res) => {
 
     const actualizacion = { ...resto };
 
-    // =========================
-    // FECHA HORA
-    // =========================
     if (fecha && hora) {
       actualizacion.fechaHora = new Date(`${fecha}T${hora}`);
     } else if (req.body.fechaHora) {
@@ -416,9 +422,6 @@ const updatePedido = async (req, res) => {
 
     const pedidoExistente = pedidoDoc.toObject();
 
-    // =========================
-    // VALIDACIÓN FECHA
-    // =========================
     const fechaBase =
       actualizacion.fechaHora || pedidoExistente.fechaHora;
 
@@ -429,9 +432,6 @@ const updatePedido = async (req, res) => {
       });
     }
 
-    // =========================
-    // RECALCULAR HORARIO
-    // =========================
     const duracionBase =
       actualizacion.duracionClase || pedidoExistente.duracionClase;
 
@@ -445,9 +445,6 @@ const updatePedido = async (req, res) => {
       actualizacion.fechaFinReal = fin;
     }
 
-    // =========================
-    // DETECCIÓN DE CAMBIOS
-    // =========================
     const cambios = {};
 
     const compararSimple = [
@@ -460,11 +457,8 @@ const updatePedido = async (req, res) => {
 
     const normalize = (v) => {
       if (!v) return null;
-
       if (v instanceof Date) return v.toISOString();
-
       if (typeof v === "object" && v._id) return v._id.toString();
-
       return JSON.stringify(v);
     };
 
@@ -482,9 +476,6 @@ const updatePedido = async (req, res) => {
       }
     }    
 
-    // =========================
-    // HORARIO REAL
-    // =========================
     if (
       actualizacion.fechaInicioReal &&
       actualizacion.fechaFinReal
@@ -507,9 +498,6 @@ const updatePedido = async (req, res) => {
       }
     }
 
-    // =========================
-    // RECURSOS (IMPORTANTE)
-    // =========================
     if (actualizacion.recursos) {
       const normalizar = (r) => ({
         recursoId: r.recursoId?.toString?.() || r.recursoId,
@@ -530,9 +518,6 @@ const updatePedido = async (req, res) => {
       }
     }
 
-    // =========================
-    // HISTORIAL
-    // =========================
     if (Object.keys(cambios).length > 0) {
       registrarHistorial(
         pedidoDoc,
@@ -543,9 +528,6 @@ const updatePedido = async (req, res) => {
       );
     }
 
-    // =========================
-    // APLICAR CAMBIOS
-    // =========================
     Object.assign(pedidoDoc, actualizacion);
 
     await pedidoDoc.save();
@@ -554,7 +536,7 @@ const updatePedido = async (req, res) => {
     await pedidoDoc.populate("laboratorio", "nombre tipo");
     await pedidoDoc.populate({
       path: "recursos.recursoId",
-      select: "nombre tipo codigo esFijo estado"
+      select: "nombre tipo codigo esFijo estado laboratorio",
     });
 
     res.json(pedidoDoc);
@@ -567,17 +549,18 @@ const updatePedido = async (req, res) => {
 const updateEstado = async (req, res) => {
   try {
     const { id } = req.params;
-    const { estado } = req.body;
+    const { estado, motivoRechazo } = req.body; // <-- Corregido: extraemos todo acá arriba juntos
 
-    if (
-      ![
-        "Pendiente",
-        "En Revisión",
-        "Aceptado",
-        "Rechazado",
-        "Finalizado"
-      ].includes(estado)
-    ) {
+    const estadosValidos = [
+      "Pendiente",
+      "Aceptado",
+      "Rechazado",
+      "Finalizado",
+      "Cancelado",
+      "Expirado"
+    ];
+
+    if (!estadosValidos.includes(estado)) {
       return res.status(400).json({
         error: "Estado no válido"
       });
@@ -599,13 +582,51 @@ const updateEstado = async (req, res) => {
 
     const estadoAnterior = pedido.estado;
 
+    if (estado === "Cancelado") {
+      if (!["Pendiente", "Aceptado"].includes(estadoAnterior)) {
+        return res.status(400).json({ error: "Solo se pueden cancelar pedidos en estado Pendiente o Aceptado." });
+      }
+
+      if (estadoAnterior === "Aceptado") {
+        const reserva = await Reserva.findOne({ pedidoId: pedido._id });
+
+        if (reserva) {
+          const restauraStock = reserva.estado === "En Curso";
+          if (restauraStock) {
+            for (const material of reserva.materialesReservados || []) {
+              const item = await Item.findById(material.itemId);
+              if (!item || item.esConsumible !== true) continue;
+              for (const lote of material.lotesUsados || []) {
+                await Lote.findByIdAndUpdate(lote.loteId, {
+                  $inc: { cantidadDisponible: lote.cantidad },
+                });
+              }
+            }
+          }
+
+          for (const equipoReservado of reserva.equiposReservados || []) {
+            await Equipo.findByIdAndUpdate(equipoReservado.equipoId, { estado: "disponible" });
+          }
+
+          await Reserva.findOneAndUpdate(
+            { pedidoId: pedido._id },
+            { estado: "Cancelada" }
+          );
+        }
+      }
+    }
+
     pedido.estado = estado;
+
+    if (estado === "Rechazado") {
+      pedido.motivoRechazo = motivoRechazo || "Sin motivo especificado";
+    }
 
     registrarHistorial(
       pedido,
       req.usuario.id,
       "CAMBIO_ESTADO",
-      `Estado cambiado de "${estadoAnterior}" a "${estado}"`,
+      `Estado cambiado de "${estadoAnterior}" a "${estado}"` + (estado === "Rechazado" ? `. Motivo: ${pedido.motivoRechazo}` : ""),
       {
         estado: {
           antes: estadoAnterior,
@@ -627,7 +648,7 @@ const updateEstado = async (req, res) => {
       },
       {
         path: "recursos.recursoId",
-        select: "nombre tipo codigo esFijo estado"
+        select: "nombre tipo codigo esFijo estado laboratorio",
       }
     ]);
 
@@ -675,7 +696,6 @@ const borrarPedidoLogico = async (req, res) => {
   }
 };
 
-
 const agregarComentario = async (req, res) => {
   try {
     const { id } = req.params;
@@ -703,7 +723,6 @@ const agregarComentario = async (req, res) => {
 
     await pedido.save();
 
-    // Volvemos a buscar el pedido ya guardado
     const pedidoActualizado = await Pedido.findById(id)
       .populate({
         path: "comentarios.usuario",
@@ -759,6 +778,32 @@ const marcarComentariosVistos = async (req, res) => {
 
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+export const updateChecklist = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { checklist } = req.body; // Recibe el array modificado desde el frontend
+
+    // Actualizamos el campo checklist y devolvemos el pedido actualizado
+    // Nota: Agregá los .populate() que uses normalmente en tu "getPedidoById" 
+    // para que la UI no pierda los datos de docente o laboratorio al refrescar el estado.
+    const pedidoActualizado = await Pedido.findByIdAndUpdate(
+      id,
+      { $set: { checklist } },
+      { new: true }
+    ).populate("docente").populate("laboratorio"); 
+
+    if (!pedidoActualizado) {
+      return res.status(404).json({ error: "Pedido no encontrado" });
+    }
+
+    // Devolvemos el pedido completo para que el frontend actualice su estado local
+    res.json(pedidoActualizado);
+  } catch (error) {
+    console.error("Error al actualizar checklist:", error);
+    res.status(500).json({ error: "Error interno al actualizar la checklist" });
   }
 };
 

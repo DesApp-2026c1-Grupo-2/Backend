@@ -66,7 +66,7 @@ const pedidoSchemaJoi = Joi.object({
         "number.base": "La cantidad de alumnos debe ser un número",
         "number.min": "Debe haber al menos 1 alumno",
     }),
-    estado: Joi.string().valid("Pendiente", "En Revisión", "Aceptado", "Rechazado", "Finalizado").default("Pendiente"),
+    estado: Joi.string().valid("Pendiente", "Aceptado", "Rechazado", "Finalizado", "Cancelado", "Expirado").default("Pendiente"),
     recursos: Joi.array().items(recursoSchemaJoi).min(0).default([]).messages({
         "array.base": "Los recursos deben ser un arreglo",
     }),
@@ -77,7 +77,7 @@ const pedidoSchemaJoi = Joi.object({
     activo: Joi.boolean().default(true).optional(),
 }).xor("fechaHora", "fecha").with("fecha", "hora").messages({
     "object.missing": "Debe proporcionar 'fechaHora' o la combinación de 'fecha' y 'hora'",
-    "object.xor": "No puede proporcionar 'fechaHora' y 'fecha' al mismo tiempo",
+    "object.xor": "No puede proporcionar 'fechaHora' and 'fecha' al mismo tiempo",
     "object.with": "Si proporciona 'fecha', también debe proporcionar 'hora'"
 });
 

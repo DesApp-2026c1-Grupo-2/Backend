@@ -10,6 +10,7 @@ vi.mock('../../../models/equipo.model.js');
 vi.mock('../../../models/descarte.model.js');
 vi.mock('../../../services/pedidoConflictos.js');
 vi.mock('../../../services/pedidoValidaciones.js');
+vi.mock('../../../services/descarte.service.js');
 
 import Pedido from '../../../models/pedido.model.js';
 import Reserva from '../../../models/reserva.model.js';
@@ -20,6 +21,7 @@ import Equipo from '../../../models/equipo.model.js';
 import Descarte from '../../../models/descarte.model.js';
 import { verificarConflictos } from '../../../services/pedidoConflictos.js';
 import { validarAnticipacionPedido } from '../../../services/pedidoValidaciones.js';
+import { registrarDescarteService } from '../../../services/descarte.service.js';
 import {
   getPedidos,
   getPedidoById,
@@ -96,10 +98,12 @@ describe('pedidoControllers', () => {
     Item.findById = vi.fn().mockResolvedValue(null);
     Laboratorio.findById = vi.fn().mockReturnValue(createQueryMock(null));
     Equipo.findById = vi.fn().mockReturnValue(createQueryMock(null));
+    Equipo.findByIdAndUpdate = vi.fn().mockResolvedValue({});
     Descarte.find = vi.fn().mockResolvedValue([]);
 
     verificarConflictos.mockResolvedValue([]);
     validarAnticipacionPedido.mockReturnValue(true);
+    registrarDescarteService.mockResolvedValue({});
   });
 
   describe('getPedidos', () => {
@@ -246,6 +250,38 @@ describe('pedidoControllers', () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: 'Estado no válido' });
     });
+
+    it('debe liberar stock y equipos al cancelar un pedido aceptado con reserva', async () => {
+      const req = mockReq({ params: { id: 'p_1' }, body: { estado: 'Cancelado' } });
+      const res = mockRes();
+      const mockPedido = {
+        _id: 'p_1',
+        estado: 'Aceptado',
+        historial: [],
+        save: vi.fn().mockResolvedValue({}),
+        populate: vi.fn().mockResolvedValue({}),
+      };
+      const mockReserva = {
+        _id: 'r_1',
+        estado: 'En Curso',
+        materialesReservados: [{ itemId: 'item_1', lotesUsados: [{ loteId: 'l_1', cantidad: 4 }] }],
+        equiposReservados: [{ equipoId: 'eq_1' }],
+      };
+
+      Pedido.findById.mockResolvedValue(mockPedido);
+      Reserva.findOne.mockResolvedValue(mockReserva);
+      Item.findById.mockResolvedValue({ _id: 'item_1', esConsumible: true });
+
+      await updateEstado(req, res);
+
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith(
+        { pedidoId: 'p_1' },
+        { estado: 'Cancelada' }
+      );
+      expect(Lote.findByIdAndUpdate).toHaveBeenCalled();
+      expect(Equipo.findByIdAndUpdate).toHaveBeenCalledWith('eq_1', { estado: 'disponible' });
+      expect(res.json).toHaveBeenCalled();
+    });
   });
 
   describe('aprobarPedido', () => {
@@ -373,6 +409,34 @@ describe('pedidoControllers', () => {
       expect(mockPedido.estado).toBe('Finalizado');
       expect(Lote.findByIdAndUpdate).not.toHaveBeenCalled();
       expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith({ pedidoId: 'p_1' }, { estado: 'Finalizada' });
+    });
+
+    it('debe aceptar desperfectos de equipos con motivo en el payload de finalización', async () => {
+      const req = mockReq({
+        params: { id: 'p_1' },
+        body: {
+          descartes: [],
+          desperfectos: [{ equipoId: 'eq_1', motivo: 'Roto por uso' }],
+        },
+        usuario: { id: 'admin_1', rol: 'ADMIN' },
+      });
+      const res = mockRes();
+      const mockPedido = {
+        _id: 'p_1',
+        estado: 'Aceptado',
+        historial: [],
+        recursos: [],
+        detalleProblemas: [],
+        save: vi.fn().mockResolvedValue({}),
+        populate: vi.fn().mockResolvedValue({}),
+      };
+
+      Pedido.findById.mockResolvedValue(mockPedido);
+
+      await finalizarPedido(req, res);
+
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith({ pedidoId: 'p_1' }, { estado: 'Finalizada' });
+      expect(res.json).toHaveBeenCalled();
     });
   });
 

@@ -107,7 +107,7 @@ const verificarConflictos = async (pedido) => {
       // ----------------------------------------------------
       if (equipo.esFijo) {
         const idLaboratorioPedido = pedido.laboratorio?._id?.toString() || pedido.laboratorio?.toString();
-        const idLaboratorioEquipo = equipo.laboratorio?._id?.toString() || equipo.laboratorio?.toString();
+        const idLaboratorioEquipo = equipo.laboratorioId?._id?.toString() || equipo.laboratorioId?.toString() || equipo.laboratorio?._id?.toString() || equipo.laboratorio?.toString();
 
         // Regra 3: Impedir selección de equipos fijos sin laboratorio asociado
         if (!idLaboratorioEquipo) {

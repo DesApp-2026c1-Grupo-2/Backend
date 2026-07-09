@@ -12,6 +12,7 @@ import {
 } from "../services/aprobacionReserva.js";
 import { validarAnticipacionPedido } from "../services/pedidoValidaciones.js";
 import { registrarHistorial } from "../services/pedidoHistorial.js";
+import { registrarDescarteService } from "../services/descarte.service.js";
 import isEqual from "lodash.isequal";
 
 const getPedidos = async (req, res) => {
@@ -263,8 +264,8 @@ const aprobarPedido = async (req, res) => {
 const finalizarPedido = async (req, res) => {
   try {
     const { id } = req.params;
-    const { descartes, desperfectos } = req.body; 
-    
+    const { descartes = [], desperfectos = [] } = req.body;
+
     const pedido = await Pedido.findById(id);
     if (!pedido) {
       return res.status(404).json({ error: "Pedido no encontrado" });
@@ -274,29 +275,47 @@ const finalizarPedido = async (req, res) => {
       return res.status(400).json({ error: "El pedido debe estar en estado 'Aceptado' para poder finalizarse." });
     }
 
-    // 1. Registrar Descartes de Materiales/Reactivos (Baja física en Lotes)
-    if (descartes && descartes.length > 0) {
-      for (const descarte of descartes) {
-        await Lote.findByIdAndUpdate(descarte.loteId, {
-          $inc: { cantidadDisponible: -descarte.cantidadADescartar }
-        });
-        
-        // Guardamos constancia en texto dentro de detalleProblemas respetando tu Schema estricto
-        pedido.detalleProblemas.push(
-          `Descarte - Lote ID: ${descarte.loteId}, Cantidad: ${descarte.cantidadADescartar}, Motivo: ${descarte.motivo || "No especificado"}`
-        );
+    const detalleProblemas = [...(pedido.detalleProblemas || [])];
+
+    for (const descarte of descartes) {
+      const tipo = descarte.tipo || "material";
+      const payload = {
+        pedidoId: id,
+        tipo,
+        itemId: descarte.itemId,
+        equipoId: descarte.equipoId,
+        cantidad: Number(descarte.cantidad || 1),
+        motivo: descarte.motivo || "Finalización de pedido",
+      };
+
+      await registrarDescarteService(payload, req.usuario);
+
+      if (tipo === "equipo") {
+        detalleProblemas.push(`Desperfecto - Equipo ID: ${descarte.equipoId} enviado a mantenimiento.`);
+      } else {
+        detalleProblemas.push(`Descarte - ${tipo}: ${descarte.itemId}, Cantidad: ${payload.cantidad}, Motivo: ${payload.motivo}`);
       }
     }
 
-    // 2. Registrar Desperfectos de Equipos (Cambiar estado a 'Mantenimiento')
-    if (desperfectos && desperfectos.length > 0) {
-      for (const equipoId of desperfectos) {
-        await Equipo.findByIdAndUpdate(equipoId, { estado: "Mantenimiento" }); 
-        pedido.detalleProblemas.push(`Desperfecto - Equipo ID: ${equipoId} enviado a Mantenimiento.`);
-      }
+    for (const desperfecto of desperfectos) {
+      const equipoId = typeof desperfecto === "string" ? desperfecto : desperfecto?.equipoId;
+      const motivo = typeof desperfecto === "string"
+        ? "Desperfecto informado al finalizar el pedido"
+        : (desperfecto?.motivo || "Desperfecto informado al finalizar el pedido");
+
+      if (!equipoId) continue;
+
+      await registrarDescarteService({
+        pedidoId: id,
+        tipo: "equipo",
+        equipoId,
+        cantidad: 1,
+        motivo,
+      }, req.usuario);
+      detalleProblemas.push(`Desperfecto - Equipo ID: ${equipoId} enviado a mantenimiento.`);
     }
 
-    // 3. Guardar cambios de estado e historial
+    pedido.detalleProblemas = detalleProblemas;
     pedido.estado = "Finalizado";
 
     registrarHistorial(
@@ -304,22 +323,20 @@ const finalizarPedido = async (req, res) => {
       req.usuario.id,
       "FINALIZACION",
       "Pedido finalizado con reporte de uso.",
-      { 
-        cambios: { 
-          estado: { antes: "Aceptado", despues: "Finalizado" },
-          reporteFinal: { descartes, desperfectos } // Se guarda seguro acá porque cambios es Tipo Mixed
-        } 
+      {
+        estado: { antes: "Aceptado", despues: "Finalizado" },
+        reporteFinal: { descartes, desperfectos },
       }
     );
 
     const pedidoFinalizado = await pedido.save();
-    
-    await Reserva.findOneAndUpdate({ pedidoId: pedido._id }, { estado: 'Finalizada' });
+
+    await Reserva.findOneAndUpdate({ pedidoId: pedido._id }, { estado: "Finalizada" });
 
     await pedidoFinalizado.populate([
       { path: "docente", select: "nombre apellido email" },
       { path: "laboratorio", select: "nombre tipo" },
-      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" }
+      { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" },
     ]);
 
     res.json({ message: "Pedido finalizado y novedades registradas.", pedido: pedidoFinalizado });
@@ -340,7 +357,7 @@ const createPedido = async (req, res) => {
 
     if (!validarAnticipacionPedido(fechaHora)) {
       return res.status(400).json({
-        error: "No se pueden crear pedidos con menos de 2 hours de anticipación el mismo día o en fechas pasadas"
+        error: "No se pueden crear pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas"
       });
     }
 
@@ -411,7 +428,7 @@ const updatePedido = async (req, res) => {
     if (fechaBase && !validarAnticipacionPedido(new Date(fechaBase))) {
       return res.status(400).json({
         error:
-          "No se pueden actualizar pedidos con menos de 2 hours de anticipación el mismo día o en fechas pasadas"
+          "No se pueden actualizar pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas"
       });
     }
 
@@ -571,10 +588,31 @@ const updateEstado = async (req, res) => {
       }
 
       if (estadoAnterior === "Aceptado") {
-        await Reserva.findOneAndUpdate(
-          { pedidoId: pedido._id },
-          { estado: 'Cancelada' }
-        );
+        const reserva = await Reserva.findOne({ pedidoId: pedido._id });
+
+        if (reserva) {
+          const restauraStock = reserva.estado === "En Curso";
+          if (restauraStock) {
+            for (const material of reserva.materialesReservados || []) {
+              const item = await Item.findById(material.itemId);
+              if (!item || item.esConsumible !== true) continue;
+              for (const lote of material.lotesUsados || []) {
+                await Lote.findByIdAndUpdate(lote.loteId, {
+                  $inc: { cantidadDisponible: lote.cantidad },
+                });
+              }
+            }
+          }
+
+          for (const equipoReservado of reserva.equiposReservados || []) {
+            await Equipo.findByIdAndUpdate(equipoReservado.equipoId, { estado: "disponible" });
+          }
+
+          await Reserva.findOneAndUpdate(
+            { pedidoId: pedido._id },
+            { estado: "Cancelada" }
+          );
+        }
       }
     }
 

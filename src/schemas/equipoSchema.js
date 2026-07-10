@@ -74,7 +74,12 @@ const equipoIdParamSchema = Joi.object({
 const equipoQuerySchema = Joi.object({
   estado: Joi.string().valid("disponible", "mantenimiento", "fuera de servicio").optional(),
   edificioId: Joi.string().hex().length(24).allow("null").optional(),
-  laboratorioId: Joi.string().hex().length(24).allow("null").optional()
+  laboratorioId: Joi.string().hex().length(24).allow("null").optional(),
+  // Búsqueda + paginación para la pantalla de Stock. Sin estos campos el
+  // middleware validate (stripUnknown) los descartaría antes del controller.
+  q: Joi.string().trim().allow("").optional(),
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(20),
 });
 
 const estadisticasUsoQuerySchema = Joi.object({

@@ -1,6 +1,23 @@
+import mongoose from "mongoose";
 import Item from "../models/item.model.js";
 import Lote from "../models/lote.model.js"; // Necesario para validar antes de borrar
+import Equipo from "../models/equipo.model.js";
 import { desgloseStock } from "../services/disponibilidad.js";
+import { parsePaginacion } from "../utils/paginacion.js";
+
+// Suma de cantidadDisponible (lotes disponibles y activos) agrupada por item,
+// en UNA sola agregación para el conjunto de items de la página. Evita el N+1
+// de llamar a Lote.calcularStockDisponible por cada item del listado.
+// Devuelve un Map<string itemId, number stock>.
+const stockDisponiblePorItem = async (itemIds) => {
+  if (itemIds.length === 0) return new Map();
+  const oids = itemIds.map((id) => new mongoose.Types.ObjectId(id));
+  const filas = await Lote.aggregate([
+    { $match: { itemId: { $in: oids }, estado: "disponible", activo: { $ne: false } } },
+    { $group: { _id: "$itemId", stock: { $sum: "$cantidadDisponible" } } },
+  ]);
+  return new Map(filas.map((f) => [String(f._id), f.stock]));
+};
 
 
 // C: Crear un nuevo item
@@ -17,17 +34,65 @@ const createItem = async (req, res) => {
   }
 };
 
-// R: Obtener todos los items
+// R: Listado paginado de items con stockDisponible por item (pantalla de Stock).
+// Query validada por itemQuerySchema: Joi ya aplicó defaults y coerción de tipos.
 const getItems = async (req, res) => {
   try {
-    const { tipo, esConsumible } = req.query;
+    const { tipo, esConsumible, q, sort, order } = req.query;
     const filtros = { activo: { $ne: false } };
 
     if (tipo) filtros.tipo = tipo;
-    if (esConsumible !== undefined) filtros.esConsumible = esConsumible === 'true';
+    if (esConsumible !== undefined) filtros.esConsumible = esConsumible;
+    if (q) {
+      // Búsqueda parcial case-insensitive sobre nombre o código. Se escapan los
+      // metacaracteres para tratar la entrada como texto literal.
+      const termino = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filtros.$or = [{ nombre: termino }, { codigo: termino }];
+    }
 
-    const items = await Item.find(filtros);
-    return res.status(200).json(items);
+    const { page, limit, skip } = parsePaginacion(req.query, { def: 20, max: 100 });
+    const orden = { [sort || "nombre"]: order === "desc" ? -1 : 1 };
+
+    const [items, total] = await Promise.all([
+      Item.find(filtros).sort(orden).skip(skip).limit(limit),
+      Item.countDocuments(filtros),
+    ]);
+
+    const stockPorItem = await stockDisponiblePorItem(items.map((i) => i.id));
+    const itemsConStock = items.map((item) => ({
+      ...item.toObject(),
+      stockDisponible: stockPorItem.get(String(item._id)) ?? 0,
+    }));
+
+    return res.status(200).json({ total, page, limit, items: itemsConStock });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+// R: Conteos agregados para las tarjetas de la pantalla de Stock (§Fase 2).
+// materiales/reactivos/sustancias salen de Item por tipo; "equipos" cuenta la
+// colección Equipo (los equipos NO se guardan como Item), y "descartes" cuenta
+// LOTES en estado 'descartado' (no la entidad Descarte).
+const getEstadisticasItems = async (_req, res) => {
+  try {
+    const [porTipo, equipos, descartes] = await Promise.all([
+      Item.aggregate([
+        { $match: { activo: { $ne: false } } },
+        { $group: { _id: "$tipo", count: { $sum: 1 } } },
+      ]),
+      Equipo.countDocuments({ activo: { $ne: false } }),
+      Lote.countDocuments({ estado: "descartado", activo: { $ne: false } }),
+    ]);
+
+    const conteo = Object.fromEntries(porTipo.map((f) => [f._id, f.count]));
+    return res.status(200).json({
+      equipos,
+      materiales: conteo.material || 0,
+      reactivos: conteo.reactivo || 0,
+      sustancias: conteo.sustancia || 0,
+      descartes,
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -157,6 +222,7 @@ const deleteItemLogico = async (req, res) => {
 export {
   createItem,
   getItems,
+  getEstadisticasItems,
   getItemById,
   getStockItem,
   updateItem,

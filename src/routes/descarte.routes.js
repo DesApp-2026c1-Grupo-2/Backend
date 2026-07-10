@@ -3,13 +3,13 @@ import { registrarDescarte, getDescartes, getHistorialPorItem, getHistorialPorPe
 import { validarJWT, validarRol } from "../middlewares/validateJWT.js";
 import { validate } from "../middlewares/validator.middleware.js";
 import { historialDescartesQuerySchema } from "../schemas/descarteSchema.js";
-import validarRegistrarDescarte from "../middlewares/validateDescartes.js";
+
 const router = Router();
 
 // Rutas que requieren autenticación
 router.use(validarJWT);
 
-router.post("/pedidos/:id",validarRegistrarDescarte, registrarDescarte);
+router.post("/pedidos/:id", registrarDescarte);
 
 // El historial de descartes es información sensible de inventario: solo PERSONAL/ADMIN.
 router.get("/", validarRol('PERSONAL', 'ADMIN'), validate(historialDescartesQuerySchema, 'query'), getDescartes);

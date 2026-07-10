@@ -10,12 +10,17 @@ import {
   getSugerencias
 } from '../controllers/actividadControllers.js';
 
-// Rutas CRUD para Actividades
+import { validarJWT, validarRol } from '../middlewares/validateJWT.js';
+
+// Rutas de lectura — cualquier usuario autenticado
+router.use(validarJWT);
 router.get('/', getActividades);
 router.get('/:id', getActividadById);
 router.get('/:id/sugerencias', getSugerencias);
-router.post('/', createActividad);
-router.put('/:id', updateActividad);
-router.delete('/:id', deleteActividad);
+
+// Rutas de escritura — solo ADMIN y PERSONAL
+router.post('/', validarRol('ADMIN', 'PERSONAL'), createActividad);
+router.put('/:id', validarRol('ADMIN', 'PERSONAL'), updateActividad);
+router.delete('/:id', validarRol('ADMIN', 'PERSONAL'), deleteActividad);
 
 export default router;

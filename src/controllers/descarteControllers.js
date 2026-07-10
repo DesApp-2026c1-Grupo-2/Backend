@@ -1,7 +1,8 @@
 import { registrarDescarteService, revertirDescarteService } from "../services/descarte.service.js";
 import Descarte from "../models/descarte.model.js";
 import { registrarDescarteSchema } from "../schemas/descarteSchema.js";
-
+import { validate } from "../middlewares/validator.middleware.js";
+import validarRegistrarDescarte from "../middlewares/validateDescartes.js";
 const LIMIT_DEFAULT = 50;
 const LIMIT_MAX = 200;
 
@@ -17,20 +18,28 @@ const parsePaginacion = (query) => {
 export const registrarDescarte = async (req, res) => {
   try {
     const { id: pedidoId } = req.params;
-    
-    // Validar body vía Joi
-    const { error, value } = registrarDescarteSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
 
-    const usuario = req.usuario; // Pasamos el usuario completo (id y rol)
+    const usuario = req.usuario;
 
-    const descarte = await registrarDescarteService({ pedidoId, ...value }, usuario);
-    
-    return res.status(201).json({ message: "Descarte registrado correctamente", descarte });
+    const descarte = await registrarDescarteService(
+      {
+        pedidoId,
+        ...req.body,
+      },
+      usuario
+    );
+
+    return res.status(201).json({
+      message: "Descarte registrado correctamente",
+      descarte,
+    });
+
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+
+    return res.status(400).json({
+      error: error.message,
+    });
+
   }
 };
 

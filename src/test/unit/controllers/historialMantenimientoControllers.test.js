@@ -226,6 +226,32 @@ describe('historialMantenimientoControllers', () => {
       expect(res.status).toHaveBeenCalledWith(409);
     });
 
+    it('debe retornar 400 sin guardar si la fecha de fin es anterior al inicio', async () => {
+      const req = mockReq({ params: { id: 'eq-1' }, body: { fecha: '2026-06-01T10:00:00.000Z' } });
+      const res = mockRes();
+      Equipo.findOne.mockResolvedValue(new Equipo({ _id: 'eq-1', estado: 'mantenimiento' }));
+
+      const mantenimiento = new HistorialMantenimiento({
+        _id: 'm-1',
+        fecha: new Date('2026-07-01T10:00:00.000Z'),
+        fin: null,
+      });
+      HistorialMantenimiento.findOne.mockReturnValue({
+        sort: vi.fn().mockResolvedValue(mantenimiento),
+      });
+
+      await finalizarMantenimiento(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.stringContaining('no puede ser anterior al inicio'),
+        }),
+      );
+      // El pre-check corta antes de tocar el documento.
+      expect(mantenimiento.save).not.toHaveBeenCalled();
+    });
+
     it('debe retornar 400 si la validación al guardar falla (fin < fecha)', async () => {
       const req = mockReq({ params: { id: 'eq-1' }, body: { fecha: '2026-06-01T10:00:00.000Z' } });
       const res = mockRes();

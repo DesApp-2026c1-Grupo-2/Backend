@@ -90,7 +90,21 @@ const finalizarMantenimiento = async (req, res) => {
       });
     }
 
-    mantenimiento.fin = fecha ? new Date(fecha) : new Date();
+    const fin = fecha ? new Date(fecha) : new Date();
+
+    // La fecha de fin nunca puede ser anterior al inicio del mantenimiento.
+    // Suele pasar cuando el front envía solo la fecha (medianoche) de un
+    // mantenimiento que arrancó más tarde ese mismo día. Devolvemos un 400
+    // claro en vez del error crudo de validación de Mongoose.
+    if (fin < mantenimiento.fecha) {
+      return res.status(400).json({
+        error:
+          "La fecha de fin no puede ser anterior al inicio del mantenimiento " +
+          `(iniciado el ${mantenimiento.fecha.toLocaleString("es-AR")})`,
+      });
+    }
+
+    mantenimiento.fin = fin;
     await mantenimiento.save(); // dispara la validación fin >= fecha
 
     equipo.estado = "disponible";

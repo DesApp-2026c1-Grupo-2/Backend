@@ -22,7 +22,8 @@ vi.mock('../../../models/lote.model.js', () => {
   return {
     default: {
       exists: vi.fn(),
-      calcularStockDisponible: vi.fn()
+      calcularStockDisponible: vi.fn(),
+      aggregate: vi.fn().mockResolvedValue([])
     }
   };
 });
@@ -86,7 +87,9 @@ describe('itemControllers', () => {
     it('debe obtener los ítems respetando los filtros (200)', async () => {
       const req = mockReq({ query: { tipo: 'reactivo', esConsumible: 'true' } });
       const res = mockRes();
-      Item.find.mockResolvedValueOnce([{ _id: '1', nombre: 'Reactivo' }]);
+      const itemMock = { _id: '1', nombre: 'Reactivo', toObject: () => ({ _id: '1', nombre: 'Reactivo' }) };
+      Item.find.mockResolvedValueOnce([itemMock]);
+      Lote.aggregate.mockResolvedValueOnce([]);
 
       await getItems(req, res);
       expect(Item.find).toHaveBeenCalledWith({

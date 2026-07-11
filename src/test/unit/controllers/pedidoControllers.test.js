@@ -10,6 +10,7 @@ vi.mock('../../../models/equipo.model.js');
 vi.mock('../../../models/descarte.model.js');
 vi.mock('../../../services/pedidoConflictos.js');
 vi.mock('../../../services/pedidoValidaciones.js');
+vi.mock('../../../services/descarte.service.js');
 
 import Pedido from '../../../models/pedido.model.js';
 import Reserva from '../../../models/reserva.model.js';
@@ -20,6 +21,7 @@ import Equipo from '../../../models/equipo.model.js';
 import Descarte from '../../../models/descarte.model.js';
 import { verificarConflictos } from '../../../services/pedidoConflictos.js';
 import { validarAnticipacionPedido } from '../../../services/pedidoValidaciones.js';
+import { registrarDescarteService } from '../../../services/descarte.service.js';
 import {
   getPedidos,
   getPedidoById,
@@ -75,8 +77,15 @@ describe('pedidoControllers', () => {
     Pedido.findById = vi.fn();
     Pedido.findByIdAndUpdate = vi.fn();
     
-    // Mocks de constructores e instancias
-    const PedidoMock = function(data) { return { ...data, save: vi.fn().mockResolvedValue(this), populate: vi.fn().mockResolvedValue(this) }; };
+    // Mocks de constructores e instancias.
+    // La instancia se auto-referencia en save/populate (devuelven el mismo objeto,
+    // como Mongoose) e incluye historial:[] para que registrarHistorial funcione.
+    const PedidoMock = function(data) {
+      const instance = { historial: [], ...data };
+      instance.save = vi.fn().mockResolvedValue(instance);
+      instance.populate = vi.fn().mockResolvedValue(instance);
+      return instance;
+    };
     Pedido.mockImplementation(PedidoMock);
 
     Reserva.findOneAndUpdate = vi.fn();
@@ -89,10 +98,12 @@ describe('pedidoControllers', () => {
     Item.findById = vi.fn().mockResolvedValue(null);
     Laboratorio.findById = vi.fn().mockReturnValue(createQueryMock(null));
     Equipo.findById = vi.fn().mockReturnValue(createQueryMock(null));
+    Equipo.findByIdAndUpdate = vi.fn().mockResolvedValue({});
     Descarte.find = vi.fn().mockResolvedValue([]);
 
     verificarConflictos.mockResolvedValue([]);
     validarAnticipacionPedido.mockReturnValue(true);
+    registrarDescarteService.mockResolvedValue({});
   });
 
   describe('getPedidos', () => {
@@ -165,8 +176,8 @@ describe('pedidoControllers', () => {
     it('debe crear un pedido correctamente', async () => {
       const req = mockReq({
         body: {
-          fecha: '2026-06-03',
-          hora: '10:00',
+          // El middleware entrega fechaHora como Date; calcularVentana lo asume.
+          fechaHora: new Date('2026-06-03T10:00:00Z'),
           materia: 'Química',
           duracionClase: 120,
           recursos: [{ recursoId: '1', tipoRecurso: 'Item', cantidad: 1 }]
@@ -219,13 +230,13 @@ describe('pedidoControllers', () => {
         body: { fechaHora: '2026-06-10T12:00:00Z' }
       });
       const res = mockRes();
-      const mockPedido = { _id: 'p_1', fechaHora: new Date() };
+      const mockPedido = { _id: 'p_1', fechaHora: new Date(), toObject() { return this; } };
       Pedido.findById.mockResolvedValue(mockPedido);
 
       await updatePedido(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ error: 'No se pueden actualizar pedidos a menos de 2 horas de anticipación el mismo día o a fechas pasadas' });
+      expect(res.json).toHaveBeenCalledWith({ error: 'No se pueden actualizar pedidos con menos de 2 horas de anticipación el mismo día o en fechas pasadas' });
     });
   });
 
@@ -238,6 +249,38 @@ describe('pedidoControllers', () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: 'Estado no válido' });
+    });
+
+    it('debe liberar stock y equipos al cancelar un pedido aceptado con reserva', async () => {
+      const req = mockReq({ params: { id: 'p_1' }, body: { estado: 'Cancelado' } });
+      const res = mockRes();
+      const mockPedido = {
+        _id: 'p_1',
+        estado: 'Aceptado',
+        historial: [],
+        save: vi.fn().mockResolvedValue({}),
+        populate: vi.fn().mockResolvedValue({}),
+      };
+      const mockReserva = {
+        _id: 'r_1',
+        estado: 'En Curso',
+        materialesReservados: [{ itemId: 'item_1', lotesUsados: [{ loteId: 'l_1', cantidad: 4 }] }],
+        equiposReservados: [{ equipoId: 'eq_1' }],
+      };
+
+      Pedido.findById.mockResolvedValue(mockPedido);
+      Reserva.findOne.mockResolvedValue(mockReserva);
+      Item.findById.mockResolvedValue({ _id: 'item_1', esConsumible: true });
+
+      await updateEstado(req, res);
+
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith(
+        { pedidoId: 'p_1' },
+        { estado: 'Cancelada' }
+      );
+      expect(Lote.findByIdAndUpdate).toHaveBeenCalled();
+      expect(Equipo.findByIdAndUpdate).toHaveBeenCalledWith('eq_1', { estado: 'disponible' });
+      expect(res.json).toHaveBeenCalled();
     });
   });
 
@@ -272,6 +315,7 @@ describe('pedidoControllers', () => {
       const mockPedido = {
         _id: 'p_1',
         estado: 'Pendiente',
+        historial: [],
         recursos: [],
         duracionClase: 120,
         fechaHora: new Date(),
@@ -282,12 +326,15 @@ describe('pedidoControllers', () => {
       mockPedido.populate.mockResolvedValue(mockPedido);
       Pedido.findById.mockResolvedValue(mockPedido);
       verificarConflictos.mockResolvedValue([]); // Sin conflictos
+      // Nuevo flujo (docs/stock-disponibilidad-temporal.md §5): la reserva se crea
+      // vía aprobarConReserva → Reserva.create([...]).
+      Reserva.create.mockResolvedValue([{ _id: 'r_1' }]);
 
       await aprobarPedido(req, res);
 
       expect(mockPedido.estado).toBe('Aceptado');
       expect(mockPedido.save).toHaveBeenCalled();
-      expect(Reserva).toHaveBeenCalled();
+      expect(Reserva.create).toHaveBeenCalled();
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
         message: expect.any(String),
         pedido: mockPedido,
@@ -312,6 +359,7 @@ describe('pedidoControllers', () => {
       const mockPedido = {
         _id: 'p_1',
         estado: 'Aceptado',
+        historial: [],
         recursos: [],
         save: vi.fn(),
         populate: vi.fn(),
@@ -328,23 +376,23 @@ describe('pedidoControllers', () => {
       expect(res.json).toHaveBeenCalled();
     });
 
-    it('no debe devolver al stock la cantidad de materiales descartados', async () => {
+    it('no debe devolver stock al inventario en la finalización (modelo temporal)', async () => {
+      // Nuevo modelo (docs/stock-disponibilidad-temporal.md §10): la finalización
+      // no repone stock. Los reutilizables nunca decrementaron cantidadDisponible
+      // y los consumibles ya se consumieron; por lo tanto Lote.findByIdAndUpdate
+      // no debe invocarse.
       const req = mockReq({ params: { id: 'p_1' } });
       const res = mockRes();
-      
-      // Creamos un pedido mockeado donde se usaron 2 lotes de un material
+
       const mockPedido = {
         _id: 'p_1',
         estado: 'Aceptado',
+        historial: [],
         recursos: [
           {
             tipoRecurso: 'Item',
             recursoId: 'item_1',
             cantidad: 10,
-            lotesDescontados: [
-              { loteId: 'lote_1', cantidadDescontada: 5 },
-              { loteId: 'lote_2', cantidadDescontada: 5 }
-            ]
           }
         ],
         save: vi.fn(),
@@ -352,29 +400,43 @@ describe('pedidoControllers', () => {
       };
       mockPedido.save.mockResolvedValue(mockPedido);
       mockPedido.populate.mockResolvedValue(mockPedido);
-      
-      Pedido.findById.mockResolvedValue(mockPedido);
-      
-      // Simulamos que es un material retornable (no consumible)
-      Item.findById.mockResolvedValue({ _id: 'item_1', esConsumible: false });
 
-      // Simulamos que se perdieron o rompieron 3 ítems del lote_1 y todos los 5 ítems del lote_2
-      Descarte.find.mockResolvedValue([
-        {
-          tipo: 'material',
-          lotesAfectados: [
-            { loteId: 'lote_1', cantidad: 3 },
-            { loteId: 'lote_2', cantidad: 5 }
-          ]
-        }
-      ]);
+      Pedido.findById.mockResolvedValue(mockPedido);
+      Item.findById.mockResolvedValue({ _id: 'item_1', esConsumible: false });
 
       await finalizarPedido(req, res);
 
-      // Verificamos que solo se le devuelvan 2 unidades al lote_1 (5 iniciales - 3 rotas = 2 devueltas)
-      expect(Lote.findByIdAndUpdate).toHaveBeenCalledWith('lote_1', { $inc: { cantidadDisponible: 2 } });
-      // Verificamos que no se llamó una segunda vez (no se debió devolver stock del lote 2 ya que se descartó completo)
-      expect(Lote.findByIdAndUpdate).toHaveBeenCalledTimes(1);
+      expect(mockPedido.estado).toBe('Finalizado');
+      expect(Lote.findByIdAndUpdate).not.toHaveBeenCalled();
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith({ pedidoId: 'p_1' }, { estado: 'Finalizada' });
+    });
+
+    it('debe aceptar desperfectos de equipos con motivo en el payload de finalización', async () => {
+      const req = mockReq({
+        params: { id: 'p_1' },
+        body: {
+          descartes: [],
+          desperfectos: [{ equipoId: 'eq_1', motivo: 'Roto por uso' }],
+        },
+        usuario: { id: 'admin_1', rol: 'ADMIN' },
+      });
+      const res = mockRes();
+      const mockPedido = {
+        _id: 'p_1',
+        estado: 'Aceptado',
+        historial: [],
+        recursos: [],
+        detalleProblemas: [],
+        save: vi.fn().mockResolvedValue({}),
+        populate: vi.fn().mockResolvedValue({}),
+      };
+
+      Pedido.findById.mockResolvedValue(mockPedido);
+
+      await finalizarPedido(req, res);
+
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith({ pedidoId: 'p_1' }, { estado: 'Finalizada' });
+      expect(res.json).toHaveBeenCalled();
     });
   });
 
@@ -382,18 +444,20 @@ describe('pedidoControllers', () => {
     it('debe marcar el pedido como inactivo', async () => {
       const req = mockReq({ params: { id: 'p_1' } });
       const res = mockRes();
-      Pedido.findByIdAndUpdate.mockResolvedValue({ _id: 'p_1', activo: false });
+      const mockPedido = { _id: 'p_1', activo: true, historial: [], save: vi.fn().mockResolvedValue(true) };
+      Pedido.findById.mockResolvedValue(mockPedido);
 
       await borrarPedidoLogico(req, res);
 
-      expect(Pedido.findByIdAndUpdate).toHaveBeenCalledWith('p_1', { activo: false }, { new: true });
-      expect(res.json).toHaveBeenCalledWith({ message: 'Pedido eliminado lógicamente', pedido: { _id: 'p_1', activo: false } });
+      expect(mockPedido.activo).toBe(false);
+      expect(mockPedido.save).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({ message: 'Pedido eliminado lógicamente', pedido: mockPedido });
     });
 
     it('debe retornar 404 si el pedido no existe', async () => {
       const req = mockReq({ params: { id: 'p_1' } });
       const res = mockRes();
-      Pedido.findByIdAndUpdate.mockResolvedValue(null);
+      Pedido.findById.mockResolvedValue(null);
 
       await borrarPedidoLogico(req, res);
 

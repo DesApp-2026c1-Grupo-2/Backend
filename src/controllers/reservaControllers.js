@@ -2,6 +2,7 @@ import Reserva from "../models/reserva.model.js";
 import Equipo from "../models/equipo.model.js";
 import Lote from "../models/lote.model.js";
 import Pedido from "../models/pedido.model.js";
+import Item from "../models/item.model.js";
 
 // Controlador para listar reservas activas filtradas por un laboratorio específico
 const getReservasActivasPorLaboratorio = async (req, res) => {
@@ -70,22 +71,38 @@ const cancelarReserva = async (req, res) => {
       return res.status(400).json({ error: `No se puede cancelar una reserva que ya está en estado ${reserva.estado}` });
     }
 
-    // 1. Restaurar stock a los lotes (Devolvemos TODO porque la reserva no ocurrió)
-    for (const material of reserva.materialesReservados) {
-      for (const lote of material.lotesUsados) {
-        await Lote.findByIdAndUpdate(lote.loteId, {
-          $inc: { cantidadDisponible: lote.cantidad }
-        });
+    // 1. Restaurar stock SOLO de lo que fue físicamente descontado.
+    //    Con el modelo de disponibilidad temporal, cantidadDisponible se
+    //    decrementa únicamente cuando la reserva pasó a "En Curso" y el material
+    //    es consumible (cronReservas.ejecutarConsumoFisico). En cualquier otro
+    //    caso —reserva Pendiente, o materiales reutilizables— los lotesUsados son
+    //    solo punteros FIFO y nunca se restó nada: reponer inflaría el inventario.
+    const restauraStock = reserva.estado === 'En Curso';
+    if (restauraStock) {
+      for (const material of reserva.materialesReservados) {
+        const item = await Item.findById(material.itemId).select('esConsumible');
+        if (!item || item.esConsumible !== true) continue; // reutilizable: nada que reponer
+        for (const lote of material.lotesUsados) {
+          await Lote.findByIdAndUpdate(lote.loteId, {
+            $inc: { cantidadDisponible: lote.cantidad }
+          });
+        }
       }
     }
 
     // 3. Sincronizar estados (Actualizamos la reserva y rechazamos el pedido original)
     reserva.estado = 'Cancelada';
     await reserva.save();
-    
+
     await Pedido.findByIdAndUpdate(reserva.pedidoId, { estado: 'Rechazado' });
 
-    res.json({ message: "Reserva cancelada exitosamente. Se liberaron los equipos y se restauró el stock.", reserva });
+    // El stock solo se repone si la reserva estaba 'En Curso' (única situación en
+    // que hubo consumo físico); no lo afirmamos cuando no se restauró nada.
+    const message = restauraStock
+      ? "Reserva cancelada exitosamente. Se liberaron los equipos y se restauró el stock consumido."
+      : "Reserva cancelada exitosamente. Se liberaron los equipos.";
+
+    res.json({ message, reserva });
   } catch (error) {
     console.error("Error en cancelarReserva:", error);
     res.status(500).json({ error: error.message });

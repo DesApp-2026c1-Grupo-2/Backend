@@ -41,7 +41,11 @@ const itemSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
     index: true
-  }
+  },
+  // Contador de versión usado como "documento de colisión" para eliminar el
+  // write skew en la aprobación concurrente de pedidos (ver
+  // services/aprobacionReserva.js y docs/stock-disponibilidad-temporal.md §5).
+  version: { type: Number, default: 0 }
 }, { timestamps: true });
 
 export default mongoose.models.Item || mongoose.model('Item', itemSchema);

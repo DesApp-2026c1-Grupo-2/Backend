@@ -12,10 +12,12 @@ const reservaSchema = new mongoose.Schema({
   duracionClase: { type: Number, required: true },
   fechaInicioReal: { type: Date },
   fechaFinReal: { type: Date },
-  estado: { 
-    type: String, 
-    enum: ['Pendiente', 'En Curso', 'Finalizada', 'Cancelada'], 
-    default: 'Pendiente' 
+  estado: {
+    type: String,
+    // 'Conflicto' se usa para fallos de ejecución del consumo físico
+    // 'Conflicto' deja de restar disponibilidad (no está en {Pendiente, En Curso}).
+    enum: ['Pendiente', 'En Curso', 'Finalizada', 'Cancelada', 'Conflicto'],
+    default: 'Pendiente'
   },
   equiposReservados: [{
     equipoId: { type: mongoose.Schema.Types.ObjectId, ref: 'Equipo', required: true }
@@ -29,6 +31,15 @@ const reservaSchema = new mongoose.Schema({
     }]
   }]
 }, { timestamps: true });
+
+// Índice de apoyo para las agregaciones de disponibilidad temporal
+// que las queries no degraden a COLLSCAN.
+reservaSchema.index({
+  estado: 1,
+  'materialesReservados.itemId': 1,
+  fechaInicioReal: 1,
+  fechaFinReal: 1
+});
 
 reservaSchema.pre('save', function() {
   if (this.fechaHora && typeof this.duracionClase === 'number') {

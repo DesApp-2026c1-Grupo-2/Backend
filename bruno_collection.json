@@ -1,0 +1,518 @@
+{
+  "info": {
+    "name": "DesaApp Backend API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Usuarios",
+      "item": [
+        {
+          "name": "Login Usuario",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@test.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/usuarios/login", "host": [ "{{base_url}}" ], "path": [ "usuarios", "login" ] }
+          }
+        },
+        {
+          "name": "Obtener Usuarios",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/usuarios", "host": [ "{{base_url}}" ], "path": [ "usuarios" ] } }
+        },
+        {
+          "name": "Obtener Usuario por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/usuarios/{{usuario_id}}", "host": [ "{{base_url}}" ], "path": [ "usuarios", "{{usuario_id}}" ] } }
+        },
+        {
+          "name": "Crear Usuario",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Nuevo\",\n  \"apellido\": \"Docente\",\n  \"email\": \"docente@test.com\",\n  \"password\": \"123456\",\n  \"rol\": \"DOCENTE\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/usuarios", "host": [ "{{base_url}}" ], "path": [ "usuarios" ] }
+          }
+        },
+        {
+          "name": "Actualizar Usuario",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"ACTIVO\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/usuarios/{{usuario_id}}", "host": [ "{{base_url}}" ], "path": [ "usuarios", "{{usuario_id}}" ] }
+          }
+        },
+        {
+          "name": "Borrar Usuario",
+          "request": { "method": "DELETE", "url": { "raw": "{{base_url}}/usuarios/{{usuario_id}}", "host": [ "{{base_url}}" ], "path": [ "usuarios", "{{usuario_id}}" ] } }
+        }
+      ]
+    },
+    {
+      "name": "2. Edificios",
+      "item": [
+        {
+          "name": "Obtener Edificios",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/edificio", "host": [ "{{base_url}}" ], "path": [ "edificio" ] } }
+        },
+        {
+          "name": "Crear Edificio",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Edificio de Ciencias\",\n  \"direccion\": \"Av. Universitaria 456\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/edificio", "host": [ "{{base_url}}" ], "path": [ "edificio" ] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Laboratorios",
+      "item": [
+        {
+          "name": "Obtener Laboratorios",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/laboratorio", "host": [ "{{base_url}}" ], "path": [ "laboratorio" ] } }
+        },
+        {
+          "name": "Obtener Laboratorios Disponibles",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/laboratorio/disponibles", "host": [ "{{base_url}}" ], "path": [ "laboratorio", "disponibles" ] } }
+        },
+        {
+          "name": "Obtener Laboratorios por Edificio",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/laboratorio/edificio/{{edificio_id}}", "host": [ "{{base_url}}" ], "path": [ "laboratorio", "edificio", "{{edificio_id}}" ] } }
+        },
+        {
+          "name": "Obtener Laboratorio por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/laboratorio/{{laboratorio_id}}", "host": [ "{{base_url}}" ], "path": [ "laboratorio", "{{laboratorio_id}}" ] } }
+        },
+        {
+          "name": "Crear Laboratorio",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Lab Computación\",\n  \"edificioId\": \"{{edificio_id}}\",\n  \"capacidad\": 40,\n  \"tipo\": \"mixto\",\n  \"estado\": \"disponible\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/laboratorio", "host": [ "{{base_url}}" ], "path": [ "laboratorio" ] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Equipos",
+      "item": [
+        {
+          "name": "Obtener Equipos",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/equipo", "host": [ "{{base_url}}" ], "path": [ "equipo" ] } }
+        },
+        {
+          "name": "Obtener Equipo por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/equipo/{{equipo_id}}", "host": [ "{{base_url}}" ], "path": [ "equipo", "{{equipo_id}}" ] } }
+        },
+        {
+          "name": "Crear Equipo",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Osciloscopio Digital\",\n  \"codigo\": \"OSC-001\",\n  \"tipo\": \"Osciloscopio\",\n  \"esFijo\": false,\n  \"edificioId\": \"{{edificio_id}}\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/equipo", "host": [ "{{base_url}}" ], "path": [ "equipo" ] }
+          }
+        },
+        {
+          "name": "Actualizar Equipo",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Osciloscopio Actualizado\",\n  \"codigo\": \"OSC-001\",\n  \"tipo\": \"Osciloscopio\",\n  \"esFijo\": false,\n  \"estado\": \"en mantenimiento\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/equipo/{{equipo_id}}", "host": [ "{{base_url}}" ], "path": [ "equipo", "{{equipo_id}}" ] }
+          }
+        },
+        {
+          "name": "Borrar Equipo",
+          "request": { "method": "DELETE", "url": { "raw": "{{base_url}}/equipo/{{equipo_id}}", "host": [ "{{base_url}}" ], "path": [ "equipo", "{{equipo_id}}" ] } }
+        }
+      ]
+    },
+    {
+      "name": "5. Pedidos",
+      "item": [
+        {
+          "name": "Obtener Pedidos",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/pedido", "host": [ "{{base_url}}" ], "path": [ "pedido" ] } }
+        },
+        {
+          "name": "Obtener Pedido por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/pedido/{{pedido_id}}", "host": [ "{{base_url}}" ], "path": [ "pedido", "{{pedido_id}}" ] } }
+        },
+        {
+          "name": "Crear Pedido",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"materia\": \"Biología 101\",\n  \"docente\": \"{{usuario_id}}\",\n  \"fechaHora\": \"2026-06-15T14:00:00\",\n  \"duracionClase\": 120,\n  \"laboratorio\": \"{{laboratorio_id}}\",\n  \"alumnos\": 15,\n  \"recursos\": [\n    {\n      \"recursoId\": \"{{equipo_id}}\",\n      \"tipoRecurso\": \"Equipo\",\n      \"cantidad\": 1\n    }\n  ]\n}"
+            },
+            "url": { "raw": "{{base_url}}/pedido", "host": [ "{{base_url}}" ], "path": [ "pedido" ] }
+          }
+        },
+        {
+          "name": "Actualizar Pedido Completo",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"materia\": \"Biología 102\",\n  \"fechaHora\": \"2026-06-16T14:00:00\",\n  \"duracionClase\": 90\n}"
+            },
+            "url": { "raw": "{{base_url}}/pedido/{{pedido_id}}", "host": [ "{{base_url}}" ], "path": [ "pedido", "{{pedido_id}}" ] }
+          }
+        },
+        {
+          "name": "Actualizar Estado Pedido",
+          "request": {
+            "method": "PATCH",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"Aceptado\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/pedido/{{pedido_id}}/estado", "host": [ "{{base_url}}" ], "path": [ "pedido", "{{pedido_id}}", "estado" ] }
+          }
+        },
+        {
+          "name": "Aprobar Pedido",
+          "request": {
+             "method": "POST",
+             "header": [],
+             "url": { "raw": "{{base_url}}/pedido/{{pedido_id}}/aprobar", "host": [ "{{base_url}}" ], "path": [ "pedido", "{{pedido_id}}", "aprobar" ] }
+          }
+        },
+        {
+          "name": "Finalizar Pedido",
+          "request": {
+             "method": "POST",
+             "header": [],
+             "url": { "raw": "{{base_url}}/pedido/{{pedido_id}}/finalizar", "host": [ "{{base_url}}" ], "path": [ "pedido", "{{pedido_id}}", "finalizar" ] }
+          }
+        },
+        {
+          "name": "Borrado Lógico de Pedido",
+          "request": { "method": "DELETE", "url": { "raw": "{{base_url}}/pedido/{{pedido_id}}", "host": [ "{{base_url}}" ], "path": [ "pedido", "{{pedido_id}}" ] } }
+        }
+      ]
+    },
+    {
+      "name": "6. Items",
+      "item": [
+        {
+          "name": "Obtener Items",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/items", "host": [ "{{base_url}}" ], "path": [ "items" ] } }
+        },
+        {
+          "name": "Obtener Item por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/items/{{item_id}}", "host": [ "{{base_url}}" ], "path": [ "items", "{{item_id}}" ] } }
+        },
+        {
+          "name": "Crear Item",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo\": \"material\",\n  \"nombre\": \"Vaso de Precipitados\",\n  \"codigo\": \"MAT-002\",\n  \"unidad\": \"unidad\",\n  \"esConsumible\": false\n}"
+            },
+            "url": { "raw": "{{base_url}}/items", "host": [ "{{base_url}}" ], "path": [ "items" ] }
+          }
+        },
+        {
+          "name": "Actualizar Item",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Vaso de Precipitados 250ml\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/items/{{item_id}}", "host": [ "{{base_url}}" ], "path": [ "items", "{{item_id}}" ] }
+          }
+        },
+        {
+          "name": "Borrar Item",
+          "request": { "method": "DELETE", "url": { "raw": "{{base_url}}/items/{{item_id}}", "host": [ "{{base_url}}" ], "path": [ "items", "{{item_id}}" ] } }
+        }
+      ]
+    },
+    {
+      "name": "7. Lotes",
+      "item": [
+        {
+          "name": "Obtener Lotes",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/lotes", "host": [ "{{base_url}}" ], "path": [ "lotes" ] } }
+        },
+        {
+          "name": "Obtener Lote por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/lotes/{{lote_id}}", "host": [ "{{base_url}}" ], "path": [ "lotes", "{{lote_id}}" ] } }
+        },
+        {
+          "name": "Crear Lote",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"itemId\": \"{{item_id}}\",\n  \"cantidadDisponible\": 100,\n  \"ubicacion\": \"Estante B2\",\n  \"estado\": \"disponible\",\n  \"fechaVencimiento\": \"2028-12-31T00:00:00Z\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/lotes", "host": [ "{{base_url}}" ], "path": [ "lotes" ] }
+          }
+        },
+        {
+          "name": "Actualizar Lote",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cantidadDisponible\": 95\n}"
+            },
+            "url": { "raw": "{{base_url}}/lotes/{{lote_id}}", "host": [ "{{base_url}}" ], "path": [ "lotes", "{{lote_id}}" ] }
+          }
+        },
+        {
+          "name": "Borrar Lote",
+          "request": { "method": "DELETE", "url": { "raw": "{{base_url}}/lotes/{{lote_id}}", "host": [ "{{base_url}}" ], "path": [ "lotes", "{{lote_id}}" ] } }
+        }
+      ]
+    },
+    {
+      "name": "8. Actividades",
+      "item": [
+        {
+          "name": "Obtener Actividades",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/actividades", "host": [ "{{base_url}}" ], "path": [ "actividades" ] } }
+        },
+        {
+          "name": "Obtener Actividad por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/actividades/{{actividad_id}}", "host": [ "{{base_url}}" ], "path": [ "actividades", "{{actividad_id}}" ] } }
+        },
+        {
+          "name": "Crear Actividad",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Seminario de Física\",\n  \"fecha\": \"2026-07-01T09:00:00Z\",\n  \"estado\": \"planificada\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/actividades", "host": [ "{{base_url}}" ], "path": [ "actividades" ] }
+          }
+        },
+        {
+          "name": "Actualizar Actividad",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"en_proceso\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/actividades/{{actividad_id}}", "host": [ "{{base_url}}" ], "path": [ "actividades", "{{actividad_id}}" ] }
+          }
+        },
+        {
+          "name": "Borrar Actividad",
+          "request": { "method": "DELETE", "url": { "raw": "{{base_url}}/actividades/{{actividad_id}}", "host": [ "{{base_url}}" ], "path": [ "actividades", "{{actividad_id}}" ] } }
+        }
+      ]
+    },
+    {
+      "name": "9. Recetas de Reactivos",
+      "item": [
+        {
+          "name": "Obtener Recetas",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/receta-reactivos", "host": [ "{{base_url}}" ], "path": [ "receta-reactivos" ] } }
+        },
+        {
+          "name": "Obtener Receta por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/receta-reactivos/{{receta_id}}", "host": [ "{{base_url}}" ], "path": [ "receta-reactivos", "{{receta_id}}" ] } }
+        },
+        {
+          "name": "Crear Receta",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reactivoId\": \"{{item_id}}\",\n  \"composicion\": [\n    {\n      \"sustanciaId\": \"{{sustancia_id}}\",\n      \"cantidad\": 50,\n      \"unidad\": \"ml\"\n    }\n  ]\n}"
+            },
+            "url": { "raw": "{{base_url}}/receta-reactivos", "host": [ "{{base_url}}" ], "path": [ "receta-reactivos" ] }
+          }
+        },
+        {
+          "name": "Actualizar Receta",
+          "request": {
+            "method": "PUT",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"composicion\": [\n    {\n      \"sustanciaId\": \"{{sustancia_id}}\",\n      \"cantidad\": 60,\n      \"unidad\": \"ml\"\n    }\n  ]\n}"
+            },
+            "url": { "raw": "{{base_url}}/receta-reactivos/{{receta_id}}", "host": [ "{{base_url}}" ], "path": [ "receta-reactivos", "{{receta_id}}" ] }
+          }
+        },
+        {
+          "name": "Borrar Receta",
+          "request": { "method": "DELETE", "url": { "raw": "{{base_url}}/receta-reactivos/{{receta_id}}", "host": [ "{{base_url}}" ], "path": [ "receta-reactivos", "{{receta_id}}" ] } }
+        }
+      ]
+    },
+    {
+      "name": "10. Producción de Reactivos",
+      "item": [
+        {
+          "name": "Obtener Producciones",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/produccion-reactivos", "host": [ "{{base_url}}" ], "path": [ "produccion-reactivos" ] } }
+        },
+        {
+          "name": "Obtener Producción por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/produccion-reactivos/{{produccion_id}}", "host": [ "{{base_url}}" ], "path": [ "produccion-reactivos", "{{produccion_id}}" ] } }
+        },
+        {
+          "name": "Crear Producción",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reactivoId\": \"{{item_id}}\",\n  \"composicionReal\": [\n    {\n      \"sustanciaId\": \"{{sustancia_id}}\",\n      \"cantidadUsada\": 55\n    }\n  ],\n  \"cantidadGenerada\": 100,\n  \"actividadId\": \"{{actividad_id}}\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/produccion-reactivos", "host": [ "{{base_url}}" ], "path": [ "produccion-reactivos" ] }
+          }
+        },
+        {
+          "name": "Borrar Producción",
+          "request": { "method": "DELETE", "url": { "raw": "{{base_url}}/produccion-reactivos/{{produccion_id}}", "host": [ "{{base_url}}" ], "path": [ "produccion-reactivos", "{{produccion_id}}" ] } }
+        }
+      ]
+    },
+    {
+      "name": "11. Reservas",
+      "item": [
+        {
+          "name": "Obtener Reservas",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/reservas", "host": [ "{{base_url}}" ], "path": [ "reservas" ] } }
+        },
+        {
+          "name": "Obtener Reserva por ID",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/reservas/{{reserva_id}}", "host": [ "{{base_url}}" ], "path": [ "reservas", "{{reserva_id}}" ] } }
+        }
+      ]
+    },
+    {
+      "name": "12. Descartes",
+      "item": [
+        {
+          "name": "Registrar Descarte",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo\": \"material\",\n  \"itemId\": \"{{item_id}}\",\n  \"cantidad\": 2,\n  \"motivo\": \"Material roto o dañado durante la práctica\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/descartes/pedidos/{{pedido_id}}", "host": [ "{{base_url}}" ], "path": [ "descartes", "pedidos", "{{pedido_id}}" ] }
+          }
+        },
+        {
+          "name": "Obtener Historial por Item/Equipo",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/descartes/item/{{item_id}}", "host": [ "{{base_url}}" ], "path": [ "descartes", "item", "{{item_id}}" ] } }
+        },
+        {
+          "name": "Obtener Historial por Pedido",
+          "request": { "method": "GET", "url": { "raw": "{{base_url}}/descartes/pedido/{{pedido_id}}", "host": [ "{{base_url}}" ], "path": [ "descartes", "pedido", "{{pedido_id}}" ] } }
+        },
+        {
+          "name": "Revertir Descarte",
+          "request": { "method": "DELETE", "url": { "raw": "{{base_url}}/descartes/{{descarte_id}}", "host": [ "{{base_url}}" ], "path": [ "descartes", "{{descarte_id}}" ] } }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "usuario_id",
+      "value": "60d5ec496f1b2b2d4c8e0001"
+    },
+    {
+      "key": "edificio_id",
+      "value": "60d5ec496f1b2b2d4c8e0002"
+    },
+    {
+      "key": "laboratorio_id",
+      "value": "60d5ec496f1b2b2d4c8e0003"
+    },
+    {
+      "key": "equipo_id",
+      "value": "60d5ec496f1b2b2d4c8e0004"
+    },
+    {
+      "key": "pedido_id",
+      "value": "60d5ec496f1b2b2d4c8e0005"
+    },
+    {
+      "key": "item_id",
+      "value": "60d5ec496f1b2b2d4c8e0006"
+    },
+    {
+      "key": "sustancia_id",
+      "value": "60d5ec496f1b2b2d4c8e0007"
+    },
+    {
+      "key": "lote_id",
+      "value": "60d5ec496f1b2b2d4c8e0008"
+    },
+    {
+      "key": "actividad_id",
+      "value": "60d5ec496f1b2b2d4c8e0009"
+    },
+    {
+      "key": "receta_id",
+      "value": "60d5ec496f1b2b2d4c8e000a"
+    },
+    {
+      "key": "produccion_id",
+      "value": "60d5ec496f1b2b2d4c8e000b"
+    },
+    {
+      "key": "reserva_id",
+      "value": "60d5ec496f1b2b2d4c8e000c"
+    },
+    {
+      "key": "descarte_id",
+      "value": "60d5ec496f1b2b2d4c8e000d"
+    }
+  ]
+}

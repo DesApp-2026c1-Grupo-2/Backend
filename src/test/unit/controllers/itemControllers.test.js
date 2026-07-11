@@ -27,12 +27,19 @@ vi.mock('../../../models/lote.model.js', () => {
   };
 });
 
+// Mock del servicio de disponibilidad (usado por getStockItem)
+vi.mock('../../../services/disponibilidad.js', () => ({
+  desgloseStock: vi.fn(),
+}));
+
 import Item from '../../../models/item.model.js';
 import Lote from '../../../models/lote.model.js';
+import { desgloseStock } from '../../../services/disponibilidad.js';
 import {
   createItem,
   getItems,
   getItemById,
+  getStockItem,
   updateItem,
   deleteItemLogico
 } from '../../../controllers/itemControllers.js';
@@ -115,6 +122,82 @@ describe('itemControllers', () => {
 
       await getItemById(req, res);
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+  });
+
+  describe('getStockItem (vista de stock §14)', () => {
+    it('devuelve el desglose usando el día actual cuando no se pasa rango', async () => {
+      const req = mockReq({ params: { id: 'item_1' } });
+      const res = mockRes();
+      Item.findOne.mockResolvedValueOnce({ _id: 'item_1', nombre: 'Tubo' });
+      desgloseStock.mockResolvedValueOnce({
+        total: 20,
+        disponible: 15,
+        aceptado: [{ cantidad: 5, pedidoId: 'ped_1' }],
+        enUso: [],
+      });
+
+      await getStockItem(req, res);
+
+      expect(desgloseStock).toHaveBeenCalledWith('item_1', expect.any(Date), expect.any(Date));
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        itemId: 'item_1',
+        total: 20,
+        disponible: 15,
+        aceptado: [{ cantidad: 5, pedidoId: 'ped_1' }],
+        enUso: [],
+      }));
+    });
+
+    it('usa el rango explícito desde/hasta cuando se proveen', async () => {
+      const desde = '2026-07-01T10:00:00.000Z';
+      const hasta = '2026-07-01T12:00:00.000Z';
+      const req = mockReq({ params: { id: 'item_1' }, query: { desde, hasta } });
+      const res = mockRes();
+      Item.findOne.mockResolvedValueOnce({ _id: 'item_1' });
+      desgloseStock.mockResolvedValueOnce({ total: 1, disponible: 1, aceptado: [], enUso: [] });
+
+      await getStockItem(req, res);
+
+      expect(desgloseStock).toHaveBeenCalledWith('item_1', new Date(desde), new Date(hasta));
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('devuelve 404 si el ítem no existe', async () => {
+      const req = mockReq({ params: { id: 'no_existe' } });
+      const res = mockRes();
+      Item.findOne.mockResolvedValueOnce(null);
+
+      await getStockItem(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(desgloseStock).not.toHaveBeenCalled();
+    });
+
+    it('devuelve 400 si las fechas del rango son inválidas', async () => {
+      const req = mockReq({ params: { id: 'item_1' }, query: { desde: 'x', hasta: 'y' } });
+      const res = mockRes();
+      Item.findOne.mockResolvedValueOnce({ _id: 'item_1' });
+
+      await getStockItem(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(desgloseStock).not.toHaveBeenCalled();
+    });
+
+    it('devuelve 400 si desde no es anterior a hasta', async () => {
+      const req = mockReq({
+        params: { id: 'item_1' },
+        query: { desde: '2026-07-01T12:00:00.000Z', hasta: '2026-07-01T10:00:00.000Z' },
+      });
+      const res = mockRes();
+      Item.findOne.mockResolvedValueOnce({ _id: 'item_1' });
+
+      await getStockItem(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(desgloseStock).not.toHaveBeenCalled();
     });
   });
 

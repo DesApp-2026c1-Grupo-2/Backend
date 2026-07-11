@@ -46,7 +46,7 @@ const usuarioSchema = new mongoose.Schema({
   estado: {
     type: String,
     enum: ['ACTIVO', 'PENDIENTE', 'SUSPENDIDO'],
-    default: 'ACTIVO' // Asume el modelo de "Registro con aprobación activo automáticamente" //mas adelante deberiamos cambiarlo
+    default: 'PENDIENTE' // Asume el modelo de "Registro con aprobación activo automáticamente" //mas adelante deberiamos cambiarlo
 
   }
 }, {

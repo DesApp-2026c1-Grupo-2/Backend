@@ -22,7 +22,7 @@ const crearLaboratorio = async (req, res) => {
 // R: Obtener todos los laboratorios
 const obtenerLaboratorios = async (req, res) => {
     try {
-        const laboratorios = await Laboratorio.find( { estado: { $ne: "eliminado" } } ); // Excluir laboratorios "fuera de servicio"
+        const laboratorios = await Laboratorio.find( { estado: { $ne: "eliminado" } } );
         res.status(200).json(laboratorios);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -60,7 +60,7 @@ const obtenerLaboratoriosPorEdificio = async (req, res) => {
 
         const laboratorios = await Laboratorio
             .find({ edificioId: idEdificio , estado: { $ne: "eliminado" } })
-            .populate("equiposFijos"); // va solo en este get???
+            .populate("equiposFijos");
 
         res.status(200).json(laboratorios);
     } catch (error) {
@@ -74,7 +74,6 @@ const actualizarEstadoLaboratorio = async (req, res) => {
         const { idLaboratorio } = req.params;
         const { estado } = req.body;
 
-        // Validación rápida del estado contra el enum definido
         const estadosValidos = ["disponible", "en mantenimiento", "fuera de servicio"];
         if (!estadosValidos.includes(estado)) {
             return res.status(400).json({ message: "Estado no válido. Los estados permitidos son: " + estadosValidos.join(', ') });
@@ -95,6 +94,7 @@ const actualizarEstadoLaboratorio = async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 };
+
 const actualizarLaboratorio = async (req, res) => {
     try {
         const { idLaboratorio } = req.params;
@@ -112,6 +112,7 @@ const actualizarLaboratorio = async (req, res) => {
         res.status(400).json({ message: error.message });
     }
 };
+
 const eliminarLaboratorioLogico = async (req, res) => {
     try {
         const { idLaboratorio } = req.params;
@@ -129,7 +130,7 @@ const eliminarLaboratorioLogico = async (req, res) => {
     }
 };
 
-// R: Obtener laboratorios disponibles para un horario (inicio y fin), considerando solapamientos
+// R: Obtener laboratorios disponibles para un horario (inicio y fin)
 const obtenerLaboratoriosDisponiblesPorHorario = async (req, res) => {
     try {
         const { fechaHora, fechaFin, duracionClase, alumnos } = req.query;
@@ -143,8 +144,6 @@ const obtenerLaboratoriosDisponiblesPorHorario = async (req, res) => {
             return res.status(400).json({ message: "fechaHora inválida" });
         }
 
-        // El fin del horario solicitado puede venir explícito (fechaFin) o calcularse
-        // a partir de la duración de la clase (igual criterio que verificarConflictos: +30 min de margen).
         let finSolicitado;
         if (fechaFin) {
             finSolicitado = new Date(fechaFin);
@@ -156,13 +155,12 @@ const obtenerLaboratoriosDisponiblesPorHorario = async (req, res) => {
             finSolicitado = new Date(inicioSolicitado.getTime() + (duracion + 30) * 60 * 1000);
         }
 
-        // Ventana de inicio considerada para verificar solapamientos (igual criterio que verificarConflictos: 1hs antes)
         const inicioVentana = new Date(inicioSolicitado.getTime() - 60 * 60 * 1000);
 
         const pedidos = await Pedido.find({
             fechaInicioReal: { $lt: finSolicitado },
             fechaFinReal: { $gt: inicioVentana },
-            estado: { $in: ["Pendiente", "En Revisión", "Aceptado"] },
+            estado: { $in: ["Pendiente", "Aceptado"] }, // CAMBIO: Se eliminó "En Revisión"
             activo: { $ne: false },
         }).select("laboratorio");
 

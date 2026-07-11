@@ -19,6 +19,9 @@ import produccionReactivoRouter from './routes/produccionReactivoRoutes.js';
 import reservaRoutes from './routes/reservaRoutes.js';
 import descarteRoutes from './routes/descarte.routes.js';
 import sugerenciaRecursoRouter from './routes/sugerenciaRecurso.routes.js';
+import movimientoStockRouter from './routes/movimientoStockRoutes.js';
+
+import { iniciarCronReservas } from './services/cronReservas.js';
 
 
 
@@ -41,6 +44,7 @@ app.use('/produccion-reactivos', produccionReactivoRouter);
 app.use('/reservas', reservaRoutes);
 app.use('/descartes', descarteRoutes);
 app.use('/sugerencias', sugerenciaRecursoRouter);
+app.use('/movimientos', movimientoStockRouter);
 
 app.get('/__backend-test__', (req, res) => res.json({ok: true}));
 const PORT = process.env.PORT || 3000;
@@ -50,6 +54,9 @@ const MONGO_URI = process.env.MONGO_URI
 mongoose.connect(MONGO_URI)
   .then(() => {
     console.log("Conectado a MongoDB correctamente");
+    // Cron de ciclo de vida de reservas (§6/§7/§9): Pendiente→En Curso con
+    // consumo físico de consumibles y En Curso→Finalizada.
+    iniciarCronReservas();
   })
   .catch((err) => {
     console.error(" Error conectando a MongoDB:", err);

@@ -2,8 +2,8 @@ import Pedido from "../models/pedido.model.js";
 import Laboratorio from "../models/laboratorio.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
-import Lote from "../models/lote.model.js";
 import Reserva from "../models/reserva.model.js";
+import { calcularDisponibilidad } from "../services/disponibilidad.js";
 
 const construirFechaHora = (data) => {
   if (data.fecha && data.hora) {
@@ -62,30 +62,6 @@ const validarLaboratorioCapacidad = async (data) => {
   return null;
 };
 
-const validarRecursoEquipo = async (recurso) => {
-  const equipo = await Equipo.findById(recurso.recursoId);
-  if (!equipo) {
-    return "Uno de los equipos solicitados no existe.";
-  }
-  if (equipo.estado !== "disponible") {
-    return `El equipo '${equipo.nombre}' no está disponible (Estado actual: ${equipo.estado}).`;
-  }
-  return null;
-};
-
-const validarRecursoItem = async (recurso) => {
-  const item = await Item.findById(recurso.recursoId);
-  if (!item) {
-    return "Uno de los ítems solicitados no existe.";
-  }
-
-  const stockDisponible = await Lote.calcularStockDisponible(recurso.recursoId);
-  if (stockDisponible < recurso.cantidad) {
-    return `Stock insuficiente de '${item.nombre}'. Solicitado: ${recurso.cantidad}, Disponible: ${stockDisponible}.`;
-  }
-  return null;
-};
-
 const validarRecursos = async (data, fechaHora, duracionClase) => {
   const detalles = [];
   const inicioReal = new Date(fechaHora.getTime() - 60 * 60 * 1000);
@@ -96,7 +72,6 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
   }
 
   for (const recurso of data.recursos) {
-
     if (
       !recurso.tipoRecurso ||
       !recurso.recursoId ||
@@ -109,9 +84,7 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
     }
 
     if (recurso.tipoRecurso === "Equipo") {
-
       const equipo = await Equipo.findById(recurso.recursoId);
-
       if (!equipo) {
         detalles.push(
           "Uno de los equipos solicitados no existe."
@@ -145,9 +118,7 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
     }
 
     if (recurso.tipoRecurso === "Item") {
-
       const item = await Item.findById(recurso.recursoId);
-
       if (!item) {
         detalles.push(
           "Uno de los ítems solicitados no existe."
@@ -155,10 +126,17 @@ const validarRecursos = async (data, fechaHora, duracionClase) => {
         continue;
       }
 
-      const stockDisponible =
-        await Lote.calcularStockDisponible(
-          recurso.recursoId
-        );
+      // Disponibilidad por rango horario (docs/stock-disponibilidad-temporal.md §3),
+      // consistente con verificarConflictos y con el gate de aprobación. Usar el
+      // stock nominal (Lote.calcularStockDisponible) ignoraba las reservas que
+      // solapan la ventana del pedido.
+      const stockDisponible = await calcularDisponibilidad(
+        recurso.recursoId,
+        inicioReal,
+        finReal,
+        null,
+        item // ya lo cargamos arriba: evitamos una segunda lectura del Item
+      );
 
       if (stockDisponible < recurso.cantidad) {
         detalles.push(
@@ -182,7 +160,6 @@ export const validarPedido = async (req, res, next) => {
     const data = req.body;
     const detalleProblemas = [];
 
-    // Validación de seguridad: un docente solo puede crear pedidos a su propio nombre
     if (req.usuario && req.usuario.rol === "DOCENTE") {
       if (data.docente && data.docente.toString() !== req.usuario.id.toString()) {
         throw new Error("No estás autorizado para crear pedidos a nombre de otro docente.");
@@ -198,11 +175,8 @@ export const validarPedido = async (req, res, next) => {
       });
     }
 
-    // Guardar la fechaHora construida en req.body para que el controller la use
     req.body.fechaHora = fechaHora;
 
-    // Eliminar las propiedades originales para evitar conflictos con validaciones
-    // posteriores (ej. Joi.xor() en pedidoSchema)
     delete data.fecha;
     delete data.hora;
 
@@ -227,7 +201,9 @@ export const validarPedido = async (req, res, next) => {
     detalleProblemas.push(...recursosProblemas);
 
     req.detalleProblemas = detalleProblemas;
-    req.estadoCalculado = detalleProblemas.length > 0 ? "En Revisión" : "Pendiente";
+    
+    // CAMBIO CLAVE: Ya no devolvemos "En Revisión". Ahora es siempre "Pendiente".
+    req.estadoCalculado = "Pendiente";
 
     next();
   } catch (error) {
@@ -238,7 +214,6 @@ export const validarPedido = async (req, res, next) => {
     });
   }
 };
-
 
 export const puedeEditarPedido = async (req, res, next) => {
   try {
@@ -253,19 +228,16 @@ export const puedeEditarPedido = async (req, res, next) => {
       });
     }
 
-    // Solo pedidos pendientes
     if (pedido.estado !== "Pendiente") {
       return res.status(403).json({
         error: "Solo se pueden editar pedidos pendientes"
       });
     }
 
-    // Admin y personal pueden editar cualquiera
     if (rol === "ADMIN" || rol === "PERSONAL") {
       return next();
     }
 
-    // Docente solo sus propios pedidos
     if (
       rol === "DOCENTE" &&
       pedido.docente.toString() === usuarioId

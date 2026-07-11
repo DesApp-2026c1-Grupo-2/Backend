@@ -17,14 +17,10 @@ const registrarMantenimientoSchema = Joi.object({
 });
 
 // Body para finalizar el mantenimiento abierto de un equipo
-// (PATCH /equipos/:id/mantenimientos/finalizar). La fecha de fin es opcional
-// (por defecto "ahora"); no puede ser futura.
-const finalizarMantenimientoSchema = Joi.object({
-  fecha: Joi.date().iso().max("now").optional().messages({
-    "date.max": "La fecha de fin no puede ser futura",
-    "date.format": "La fecha debe estar en formato ISO",
-  }),
-});
+// (PATCH /equipos/:id/mantenimientos/finalizar). No lleva parámetros: la fecha
+// de fin la fija el servidor con la hora actual. Cualquier campo que envíe el
+// cliente se ignora (el middleware validate hace stripUnknown).
+const finalizarMantenimientoSchema = Joi.object({});
 
 // Query para listar el historial de un equipo (GET /equipos/:id/mantenimientos).
 const historialMantenimientoQuerySchema = Joi.object({

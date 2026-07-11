@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Equipo from "../models/equipo.model.js";
 import { obtenerEstadisticasUso } from "../services/estadisticasEquipo.js";
+import { parsePaginacion } from "../utils/paginacion.js";
 
 const createEquipo = async (req, res) => {
   try {
@@ -22,7 +23,7 @@ const createEquipo = async (req, res) => {
 
 const getEquipos = async (req, res) => {
   try {
-    const { estado, edificioId, laboratorioId } = req.query;
+    const { estado, edificioId, laboratorioId, q } = req.query;
 
     const filtros = { activo: { $ne: false } };
 
@@ -40,11 +41,25 @@ const getEquipos = async (req, res) => {
       filtros.laboratorioId = new mongoose.Types.ObjectId(laboratorioId);
     }
 
-    const equipos = await Equipo.find(filtros)
-      .populate("edificioId")
-      .populate("laboratorioId");
+    if (q) {
+      // Búsqueda parcial case-insensitive sobre nombre o código (texto literal).
+      const termino = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filtros.$or = [{ nombre: termino }, { codigo: termino }];
+    }
 
-    return res.json(equipos);
+    const { page, limit, skip } = parsePaginacion(req.query, { def: 20, max: 100 });
+
+    const [equipos, total] = await Promise.all([
+      Equipo.find(filtros)
+        .sort({ nombre: 1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("edificioId")
+        .populate("laboratorioId"),
+      Equipo.countDocuments(filtros),
+    ]);
+
+    return res.json({ total, page, limit, equipos });
   } catch (err) {
     if (err.name === 'CastError') {
       return res.status(400).json({ error: "Formato de ID inválido en los parámetros de búsqueda." });

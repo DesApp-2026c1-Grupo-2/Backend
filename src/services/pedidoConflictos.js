@@ -109,6 +109,9 @@ const verificarConflictos = async (pedido) => {
         const idLaboratorioPedido = pedido.laboratorio?._id?.toString() || pedido.laboratorio?.toString();
         const idLaboratorioEquipo = equipo.laboratorioId?._id?.toString() || equipo.laboratorioId?.toString() || equipo.laboratorio?._id?.toString() || equipo.laboratorio?.toString();
 
+        const laboratorioEquipo = await Laboratorio.findById(idLaboratorioEquipo).select("nombre");
+        const nombreLaboratorio = laboratorioEquipo?.nombre ?? "desconocido";
+
         // Regra 3: Impedir selección de equipos fijos sin laboratorio asociado
         if (!idLaboratorioEquipo) {
           conflictos.push({
@@ -124,7 +127,7 @@ const verificarConflictos = async (pedido) => {
           conflictos.push({
             tipo: "incompatibilidad_equipo_fijo",
             severidad: "alta",
-            mensaje: `El equipo "${equipo.nombre}" pertenece fijamente a otro laboratorio. No se puede asignar a este aula.`,
+            mensaje: `El equipo "${equipo.nombre}" pertenece al laboratorio "${nombreLaboratorio}" y no se puede asignar a este aula.`,
           });
         }
       }

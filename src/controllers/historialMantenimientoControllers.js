@@ -66,7 +66,6 @@ const registrarMantenimiento = async (req, res) => {
 const finalizarMantenimiento = async (req, res) => {
   try {
     const { id } = req.params; // equipoId
-    const { fecha } = req.body; // fecha de fin (opcional)
 
     const equipo = await Equipo.findOne({ _id: id, activo: { $ne: false } });
     if (!equipo) {
@@ -90,22 +89,10 @@ const finalizarMantenimiento = async (req, res) => {
       });
     }
 
-    const fin = fecha ? new Date(fecha) : new Date();
-
-    // La fecha de fin nunca puede ser anterior al inicio del mantenimiento.
-    // Suele pasar cuando el front envía solo la fecha (medianoche) de un
-    // mantenimiento que arrancó más tarde ese mismo día. Devolvemos un 400
-    // claro en vez del error crudo de validación de Mongoose.
-    if (fin < mantenimiento.fecha) {
-      return res.status(400).json({
-        error:
-          "La fecha de fin no puede ser anterior al inicio del mantenimiento " +
-          `(iniciado el ${mantenimiento.fecha.toLocaleString("es-AR")})`,
-      });
-    }
-
-    mantenimiento.fin = fin;
-    await mantenimiento.save(); // dispara la validación fin >= fecha
+    // El fin es el momento de finalización: lo fija el servidor. Como el inicio
+    // siempre es <= ahora (se valida al registrar), fin >= inicio se cumple solo.
+    mantenimiento.fin = new Date();
+    await mantenimiento.save();
 
     equipo.estado = "disponible";
     await equipo.save();

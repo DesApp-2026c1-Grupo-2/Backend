@@ -1,5 +1,7 @@
+import mongoose from "mongoose";
 import Lote from "../models/lote.model.js";
 import { registrarMovimiento, stockFisicoItem } from "../services/movimientoStock.service.js";
+import { parsePaginacion } from "../utils/paginacion.js";
 
 /*
  * Registro de historial en el CRUD de lotes (COMPRA/AJUSTE_MANUAL/BAJA).
@@ -45,20 +47,60 @@ const createLote = async (req, res) => {
   }
 };
 
-// R: Obtener todos los lotes (con filtros opcionales)
+// R: Obtener lotes (con filtros opcionales), ordenados FEFO.
+// Shape compatible: devuelve un ARRAY por defecto; si llegan `page`/`limit`
+// (p. ej. panel de descartados) devuelve `{ total, page, limit, lotes }`.
+// El item se trae con nombre/código/tipo, igual que el populate anterior.
 const getLotes = async (req, res) => {
   try {
     const { itemId, estado, ubicacion } = req.query;
     const filtros = { activo: { $ne: false } };
 
-    if (itemId) filtros.itemId = itemId;
+    if (itemId) filtros.itemId = new mongoose.Types.ObjectId(itemId);
     if (estado) filtros.estado = estado;
     if (ubicacion) filtros.ubicacion = ubicacion;
 
-    // Usamos populate para traer información relevante de las colecciones relacionadas
-    const lotes = await Lote.find(filtros)
-      .populate('itemId', 'nombre codigo tipo'); // Traemos el nombre, código y tipo del Item
+    // FEFO: lo que vence primero, arriba. `_sinVenc` empuja los lotes sin
+    // fechaVencimiento al FINAL (Mongo, en orden ascendente, pondría los null
+    // primero). Desempate por fechaCreacion, igual que la asignación de stock.
+    const pipeline = [
+      { $match: filtros },
+      { $addFields: { _sinVenc: { $cond: [{ $gt: ["$fechaVencimiento", null] }, 0, 1] } } },
+      { $sort: { _sinVenc: 1, fechaVencimiento: 1, fechaCreacion: 1 } },
+    ];
 
+    const paginado = req.query.page !== undefined || req.query.limit !== undefined;
+    let page, limit;
+    if (paginado) {
+      const p = parsePaginacion(req.query, { def: 20, max: 100 });
+      ({ page, limit } = p);
+      pipeline.push({ $skip: p.skip }, { $limit: limit });
+    }
+
+    // $lookup + reshape del item a { id, nombre, codigo, tipo } y del lote a id.
+    pipeline.push(
+      { $lookup: { from: "items", localField: "itemId", foreignField: "_id", as: "_item" } },
+      { $unwind: { path: "$_item", preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          id: "$_id",
+          itemId: {
+            id: "$_item._id",
+            nombre: "$_item.nombre",
+            codigo: "$_item.codigo",
+            tipo: "$_item.tipo",
+          },
+        },
+      },
+      { $project: { _sinVenc: 0, _item: 0, __v: 0 } },
+    );
+
+    const lotes = await Lote.aggregate(pipeline);
+
+    if (paginado) {
+      const total = await Lote.countDocuments(filtros);
+      return res.status(200).json({ total, page, limit, lotes });
+    }
     return res.status(200).json(lotes);
   } catch (error) {
     return res.status(500).json({ error: error.message });

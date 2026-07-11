@@ -9,10 +9,10 @@ mientras que el Lote es una Instancia concreta de ese producto, manteniendo el e
 
 
 const itemSchema = new mongoose.Schema({
-  tipo: { 
-    type: String, 
-    enum: ['sustancia', 'reactivo', 'material', 'equipo'], 
-    required: true 
+  tipo: {
+    type: String,
+    enum: ['sustancia', 'reactivo', 'material'],
+    required: true
   },
   nombre: { type: String, required: true },
   codigo: { type: String, required: true, unique: true, index: true },
@@ -27,7 +27,7 @@ const itemSchema = new mongoose.Schema({
         // Leemos la propiedad dependiendo de si es Save (this.tipo) o Update (this.getUpdate).
         const tipoActual = this.tipo || (this.getUpdate ? (this.getUpdate().tipo || this.getUpdate().$set?.tipo) : null);
         // Solo los reactivos pueden requerir receta
-        // Para otros tipos (material, sustancia, equipo), debe ser false o puede ser omitido (default false)
+        // Para otros tipos (material, sustancia), debe ser false o puede ser omitido (default false)
         if (tipoActual === 'reactivo') {
           return true; // Los reactivos pueden ser true o false
         }

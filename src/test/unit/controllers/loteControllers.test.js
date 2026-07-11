@@ -12,6 +12,8 @@ vi.mock('../../../models/lote.model.js', () => {
   MockLote.find = vi.fn();
   MockLote.findOne = vi.fn();
   MockLote.findOneAndUpdate = vi.fn();
+  MockLote.aggregate = vi.fn();
+  MockLote.countDocuments = vi.fn();
   return { default: MockLote };
 });
 
@@ -80,31 +82,55 @@ describe('loteControllers', () => {
   });
 
   describe('getLotes', () => {
-    it('debe devolver lotes con los filtros correspondientes (200)', async () => {
-      const req = mockReq({ query: { itemId: 'item_1', estado: 'disponible', ubicacion: 'Estante 1' } });
+    it('devuelve un ARRAY (FEFO) cuando no se pagina (200)', async () => {
+      const itemId = '507f1f77bcf86cd799439011';
+      const req = mockReq({ query: { itemId, estado: 'disponible', ubicacion: 'Estante 1' } });
       const res = mockRes();
-      const mockData = [{ _id: 'L1' }];
+      const mockData = [{ id: 'L1', itemId: { id: itemId, nombre: 'Tubo' } }];
 
-      Lote.find.mockReturnValue(createQueryMock(mockData));
+      Lote.aggregate.mockResolvedValueOnce(mockData);
 
       await getLotes(req, res);
-      
-      expect(Lote.find).toHaveBeenCalledWith({
+
+      // El $match del pipeline debe incluir los filtros (itemId como ObjectId).
+      const pipeline = Lote.aggregate.mock.calls[0][0];
+      expect(pipeline[0].$match).toMatchObject({
         activo: { $ne: false },
-        itemId: 'item_1',
         estado: 'disponible',
-        ubicacion: 'Estante 1'
+        ubicacion: 'Estante 1',
       });
-      // Evaluamos el mock encadenado
-      expect(Lote.find().populate).toHaveBeenCalledWith('itemId', 'nombre codigo tipo');
+      expect(String(pipeline[0].$match.itemId)).toBe(itemId);
+      // Sin page/limit no debe haber $skip/$limit en el pipeline.
+      expect(pipeline.some((etapa) => '$limit' in etapa)).toBe(false);
+      expect(Lote.countDocuments).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(mockData);
+    });
+
+    it('devuelve objeto paginado cuando llegan page/limit (200)', async () => {
+      const req = mockReq({ query: { estado: 'descartado', page: '2', limit: '5' } });
+      const res = mockRes();
+      const mockData = [{ id: 'L9' }];
+
+      Lote.aggregate.mockResolvedValueOnce(mockData);
+      Lote.countDocuments.mockResolvedValueOnce(11);
+
+      await getLotes(req, res);
+
+      const pipeline = Lote.aggregate.mock.calls[0][0];
+      expect(pipeline).toContainEqual({ $skip: 5 });
+      expect(pipeline).toContainEqual({ $limit: 5 });
+      expect(Lote.countDocuments).toHaveBeenCalledWith({
+        activo: { $ne: false },
+        estado: 'descartado',
+      });
+      expect(res.json).toHaveBeenCalledWith({ total: 11, page: 2, limit: 5, lotes: mockData });
     });
 
     it('debe devolver 500 en caso de error interno', async () => {
       const req = mockReq();
       const res = mockRes();
-      Lote.find.mockImplementationOnce(() => { throw new Error('DB Error'); });
+      Lote.aggregate.mockImplementationOnce(() => { throw new Error('DB Error'); });
 
       await getLotes(req, res);
       expect(res.status).toHaveBeenCalledWith(500);

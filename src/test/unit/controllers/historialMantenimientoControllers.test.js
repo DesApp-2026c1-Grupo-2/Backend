@@ -172,9 +172,10 @@ describe('historialMantenimientoControllers', () => {
       );
     });
 
-    it('debe usar la fecha del body como fin cuando se provee', async () => {
-      const finProvisto = '2026-07-05T12:00:00.000Z';
-      const req = mockReq({ params: { id: 'eq-1' }, body: { fecha: finProvisto } });
+    it('debe fijar el fin con la hora del servidor e ignorar la fecha del body', async () => {
+      // El cliente no controla el fin: se usa new Date() del servidor aunque
+      // el body traiga una fecha.
+      const req = mockReq({ params: { id: 'eq-1' }, body: { fecha: '2026-07-05T12:00:00.000Z' } });
       const res = mockRes();
 
       Equipo.findOne.mockResolvedValue(new Equipo({ _id: 'eq-1', estado: 'mantenimiento' }));
@@ -187,9 +188,12 @@ describe('historialMantenimientoControllers', () => {
         sort: vi.fn().mockResolvedValue(mantenimiento),
       });
 
+      const antes = Date.now();
       await finalizarMantenimiento(req, res);
 
-      expect(mantenimiento.fin).toEqual(new Date(finProvisto));
+      expect(mantenimiento.fin).toBeInstanceOf(Date);
+      expect(mantenimiento.fin.getTime()).toBeGreaterThanOrEqual(antes);
+      expect(mantenimiento.fin).not.toEqual(new Date('2026-07-05T12:00:00.000Z'));
     });
 
     it('debe retornar 404 si el equipo no existe', async () => {
@@ -226,8 +230,8 @@ describe('historialMantenimientoControllers', () => {
       expect(res.status).toHaveBeenCalledWith(409);
     });
 
-    it('debe retornar 400 si la validación al guardar falla (fin < fecha)', async () => {
-      const req = mockReq({ params: { id: 'eq-1' }, body: { fecha: '2026-06-01T10:00:00.000Z' } });
+    it('debe retornar 400 si la validación al guardar falla', async () => {
+      const req = mockReq({ params: { id: 'eq-1' }, body: {} });
       const res = mockRes();
       Equipo.findOne.mockResolvedValue(new Equipo({ _id: 'eq-1', estado: 'mantenimiento' }));
 

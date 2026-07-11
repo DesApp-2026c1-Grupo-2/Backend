@@ -14,6 +14,8 @@ vi.mock('../../../models/item.model.js', () => {
   MockItem.find = vi.fn();
   MockItem.findOne = vi.fn();
   MockItem.findOneAndUpdate = vi.fn();
+  MockItem.countDocuments = vi.fn();
+  MockItem.aggregate = vi.fn();
   return { default: MockItem };
 });
 
@@ -23,10 +25,16 @@ vi.mock('../../../models/lote.model.js', () => {
     default: {
       exists: vi.fn(),
       calcularStockDisponible: vi.fn(),
+      countDocuments: vi.fn(),
       aggregate: vi.fn().mockResolvedValue([])
     }
   };
 });
+
+// Mock Modelo Equipo (usado por getEstadisticasItems para contar equipos)
+vi.mock('../../../models/equipo.model.js', () => ({
+  default: { countDocuments: vi.fn() },
+}));
 
 // Mock del servicio de disponibilidad (usado por getStockItem)
 vi.mock('../../../services/disponibilidad.js', () => ({
@@ -35,15 +43,35 @@ vi.mock('../../../services/disponibilidad.js', () => ({
 
 import Item from '../../../models/item.model.js';
 import Lote from '../../../models/lote.model.js';
+import Equipo from '../../../models/equipo.model.js';
 import { desgloseStock } from '../../../services/disponibilidad.js';
 import {
   createItem,
   getItems,
+  getEstadisticasItems,
   getItemById,
   getStockItem,
   updateItem,
   deleteItemLogico
 } from '../../../controllers/itemControllers.js';
+
+// Mock del find() encadenado: .sort().skip().limit() → resuelve al array.
+const createFindChainMock = (docs) => {
+  const chain = {
+    sort: vi.fn().mockReturnThis(),
+    skip: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockResolvedValue(docs),
+  };
+  return chain;
+};
+
+// Doc de item con lo que consume el controller: _id, id y toObject().
+const itemDoc = (id, extra = {}) => ({
+  _id: id,
+  id,
+  toObject: () => ({ _id: id, id, ...extra }),
+  ...extra,
+});
 
 const mockReq = (overrides = {}) => ({ params: {}, body: {}, query: {}, ...overrides });
 
@@ -84,20 +112,74 @@ describe('itemControllers', () => {
   });
 
   describe('getItems', () => {
-    it('debe obtener los ítems respetando los filtros (200)', async () => {
-      const req = mockReq({ query: { tipo: 'reactivo', esConsumible: 'true' } });
+    it('devuelve listado paginado con stockDisponible por ítem (200)', async () => {
+      // Joi ya coercionó esConsumible a boolean antes del controller.
+      const req = mockReq({ query: { tipo: 'reactivo', esConsumible: true } });
       const res = mockRes();
       const itemMock = { _id: '1', nombre: 'Reactivo', toObject: () => ({ _id: '1', nombre: 'Reactivo' }) };
       Item.find.mockResolvedValueOnce([itemMock]);
       Lote.aggregate.mockResolvedValueOnce([]);
 
       await getItems(req, res);
+
       expect(Item.find).toHaveBeenCalledWith({
         activo: { $ne: false },
         tipo: 'reactivo',
-        esConsumible: true
+        esConsumible: true,
       });
       expect(res.status).toHaveBeenCalledWith(200);
+      const payload = res.json.mock.calls[0][0];
+      expect(payload).toMatchObject({ total: 2, page: 1, limit: 20 });
+      expect(payload.items).toEqual([
+        { _id: id1, id: id1, nombre: 'Reactivo A', stockDisponible: 40 },
+        { _id: id2, id: id2, nombre: 'Reactivo B', stockDisponible: 0 },
+      ]);
+    });
+
+    it('aplica búsqueda parcial (q) sobre nombre y código', async () => {
+      const req = mockReq({ query: { q: 'aci' } });
+      const res = mockRes();
+      Item.find.mockReturnValueOnce(createFindChainMock([]));
+      Item.countDocuments.mockResolvedValueOnce(0);
+      Lote.aggregate.mockResolvedValueOnce([]);
+
+      await getItems(req, res);
+
+      const filtros = Item.find.mock.calls[0][0];
+      expect(filtros.$or).toHaveLength(2);
+      expect(filtros.$or[0].nombre).toBeInstanceOf(RegExp);
+      expect(filtros.$or[1].codigo).toBeInstanceOf(RegExp);
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+  });
+
+  describe('getEstadisticasItems', () => {
+    it('devuelve conteos por tipo + descartes (200)', async () => {
+      const req = mockReq();
+      const res = mockRes();
+      Item.aggregate.mockResolvedValueOnce([
+        { _id: 'material', count: 12 },
+        { _id: 'reactivo', count: 8 },
+      ]);
+      // equipos se cuenta de la colección Equipo, no de Item.tipo === 'equipo'.
+      Equipo.countDocuments.mockResolvedValueOnce(5);
+      Lote.countDocuments.mockResolvedValueOnce(3);
+
+      await getEstadisticasItems(req, res);
+
+      expect(Equipo.countDocuments).toHaveBeenCalledWith({ activo: { $ne: false } });
+      expect(Lote.countDocuments).toHaveBeenCalledWith({
+        estado: 'descartado',
+        activo: { $ne: false },
+      });
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        equipos: 5,
+        materiales: 12,
+        reactivos: 8,
+        sustancias: 0,
+        descartes: 3,
+      });
     });
   });
 

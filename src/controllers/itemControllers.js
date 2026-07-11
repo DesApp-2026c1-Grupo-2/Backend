@@ -27,7 +27,22 @@ const getItems = async (req, res) => {
     if (esConsumible !== undefined) filtros.esConsumible = esConsumible === 'true';
 
     const items = await Item.find(filtros);
-    return res.status(200).json(items);
+
+    // Calcular stock disponible para todos los items en una sola query
+    const stockPorItem = await Lote.aggregate([
+      { $match: { estado: 'disponible', activo: { $ne: false } } },
+      { $group: { _id: '$itemId', stockTotal: { $sum: '$cantidadDisponible' } } }
+    ]);
+    const stockMap = Object.fromEntries(
+      stockPorItem.map((s) => [s._id.toString(), s.stockTotal])
+    );
+
+    const itemsConStock = items.map((item) => ({
+      ...item.toObject(),
+      cantidadDisponible: stockMap[item._id.toString()] ?? 0,
+    }));
+
+    return res.status(200).json(itemsConStock);
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

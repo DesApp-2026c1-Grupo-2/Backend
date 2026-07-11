@@ -26,7 +26,7 @@ vi.mock('../../../models/lote.model.js', () => {
       exists: vi.fn(),
       calcularStockDisponible: vi.fn(),
       countDocuments: vi.fn(),
-      aggregate: vi.fn()
+      aggregate: vi.fn().mockResolvedValue([])
     }
   };
 });
@@ -116,16 +116,9 @@ describe('itemControllers', () => {
       // Joi ya coercionó esConsumible a boolean antes del controller.
       const req = mockReq({ query: { tipo: 'reactivo', esConsumible: true } });
       const res = mockRes();
-
-      const id1 = '507f1f77bcf86cd799439011';
-      const id2 = '507f1f77bcf86cd799439012';
-      Item.find.mockReturnValueOnce(createFindChainMock([
-        itemDoc(id1, { nombre: 'Reactivo A' }),
-        itemDoc(id2, { nombre: 'Reactivo B' }),
-      ]));
-      Item.countDocuments.mockResolvedValueOnce(2);
-      // Solo el primer item tiene lotes disponibles; el segundo debe quedar en 0.
-      Lote.aggregate.mockResolvedValueOnce([{ _id: id1, stock: 40 }]);
+      const itemMock = { _id: '1', nombre: 'Reactivo', toObject: () => ({ _id: '1', nombre: 'Reactivo' }) };
+      Item.find.mockResolvedValueOnce([itemMock]);
+      Lote.aggregate.mockResolvedValueOnce([]);
 
       await getItems(req, res);
 

@@ -175,13 +175,36 @@ export const updatePedidoService = async (pedidoId, body, usuario) => {
   }
 
   if (actualizacion.recursos) {
-    const norm = (r) => ({
-      recursoId: r.recursoId?.toString?.() || r.recursoId,
-      tipoRecurso: r.tipoRecurso,
-      cantidad: r.cantidad,
-    });
+    // 1. Recopilamos IDs únicos (viejos y nuevos)
+    const idsRecursos = [...new Set([
+      ...(pedidoExistente.recursos || []).map(r => r.recursoId?.toString?.() || r.recursoId),
+      ...(actualizacion.recursos || []).map(r => r.recursoId?.toString?.() || r.recursoId)
+    ].filter(Boolean))];
+
+    // 2. Buscamos los nombres en lote para no afectar el rendimiento
+    const [equipos, items] = await Promise.all([
+      Equipo.find({ _id: { $in: idsRecursos } }, 'nombre'),
+      Item.find({ _id: { $in: idsRecursos } }, 'nombre')
+    ]);
+    
+    const mapaNombres = {};
+    equipos.forEach(e => mapaNombres[e._id.toString()] = e.nombre);
+    items.forEach(i => mapaNombres[i._id.toString()] = i.nombre);
+
+    // 3. Normalizamos inyectando el nombre directamente
+    const norm = (r) => {
+      const idStr = r.recursoId?.toString?.() || r.recursoId;
+      return {
+        recursoId: idStr,
+        nombre: mapaNombres[idStr] || "Recurso eliminado/desconocido",
+        tipoRecurso: r.tipoRecurso,
+        cantidad: r.cantidad,
+      };
+    };
+
     const antesR = (pedidoExistente.recursos || []).map(norm);
     const despuesR = (actualizacion.recursos || []).map(norm);
+    
     if (JSON.stringify(antesR) !== JSON.stringify(despuesR)) {
       cambios.recursos = { antes: antesR, despues: despuesR };
     }
@@ -366,6 +389,37 @@ export const finalizarPedidoService = async (pedidoId, body, usuario) => {
 
   pedido.detalleProblemas = detalleProblemas;
   pedido.estado = "Finalizado";
+
+  // AGREGAR ESTE BLOQUE PARA CAPTURAR NOMBRES (SNAPSHOT) 👇
+  const descartesSnapshot = await Promise.all(descartes.map(async (d) => {
+    const id = d.itemId || d.equipoId;
+    let nombre = "Desconocido";
+    if (id) {
+      const model = d.tipo === "equipo" ? Equipo : Item;
+      const doc = await model.findById(id, 'nombre');
+      if (doc) nombre = doc.nombre;
+    }
+    return { ...d, nombre };
+  }));
+
+  const desperfectosSnapshot = await Promise.all(desperfectos.map(async (d) => {
+    const id = typeof d === "string" ? d : d?.equipoId;
+    let nombre = "Equipo Desconocido";
+    if (id) {
+      const doc = await Equipo.findById(id, 'nombre');
+      if (doc) nombre = doc.nombre;
+    }
+    return typeof d === "string" 
+      ? { equipoId: id, nombre, motivo: "Desperfecto informado al finalizar el pedido" } 
+      : { ...d, nombre };
+  }));
+  // 👆 HASTA ACÁ
+
+  // MODIFICAR EL REGISTRO DE HISTORIAL PARA USAR LOS SNAPSHOTS:
+  registrarHistorial(pedido, usuario.id, "FINALIZACION", "Pedido finalizado con reporte de uso.", {
+    estado: { antes: "Aceptado", despues: "Finalizado" },
+    reporteFinal: { descartes: descartesSnapshot, desperfectos: desperfectosSnapshot },
+  });;
 
   registrarHistorial(pedido, usuario.id, "FINALIZACION", "Pedido finalizado con reporte de uso.", {
     estado: { antes: "Aceptado", despues: "Finalizado" },

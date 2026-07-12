@@ -27,10 +27,17 @@ vi.mock('../../../models/item.model.js', () => ({
   default: { findById: vi.fn() }
 }));
 
+// Historial de stock: dependencia cross-service, se mockea (como en loteControllers.test).
+vi.mock('../../../services/movimientoStock.service.js', () => ({
+  registrarMovimiento: vi.fn().mockResolvedValue({}),
+  stockFisicoItem: vi.fn().mockResolvedValue(100),
+}));
+
 import Reserva from '../../../models/reserva.model.js';
 import Lote from '../../../models/lote.model.js';
 import Pedido from '../../../models/pedido.model.js';
 import Item from '../../../models/item.model.js';
+import { registrarMovimiento } from '../../../services/movimientoStock.service.js';
 
 // Item.findById(...).select('esConsumible') → devuelve el item indicado
 const mockItem = (esConsumible) =>
@@ -115,6 +122,9 @@ describe('reservaControllers', () => {
 
       // Validación 3: Se sincroniza el pedido marcándolo como Rechazado
       expect(Pedido.findByIdAndUpdate).toHaveBeenCalledWith('p_1', { estado: 'Rechazado' });
+
+      // No hubo reposición física ⇒ no se registra ningún movimiento.
+      expect(registrarMovimiento).not.toHaveBeenCalled();
     });
 
     it('restaura el stock de consumibles al cancelar una reserva En Curso (ya se descontó físicamente) (200)', async () => {
@@ -141,6 +151,16 @@ describe('reservaControllers', () => {
       });
       expect(mockReserva.estado).toBe('Cancelada');
       expect(Pedido.findByIdAndUpdate).toHaveBeenCalledWith('p_2', { estado: 'Rechazado' });
+
+      // Reposición física del consumible ⇒ DEVOLUCION con delta positivo.
+      expect(registrarMovimiento).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'item_1',
+          tipoMovimiento: 'DEVOLUCION',
+          cantidad: 5,
+          reservaId: 'r_2',
+        })
+      );
     });
 
     it('NO restaura stock de materiales reutilizables aunque la reserva esté En Curso (nunca se decrementaron) (200)', async () => {
@@ -164,6 +184,8 @@ describe('reservaControllers', () => {
 
       expect(Lote.findByIdAndUpdate).not.toHaveBeenCalled();
       expect(mockReserva.estado).toBe('Cancelada');
+      // Reutilizable: nada se repuso ⇒ no se registra DEVOLUCION.
+      expect(registrarMovimiento).not.toHaveBeenCalled();
     });
   });
 });

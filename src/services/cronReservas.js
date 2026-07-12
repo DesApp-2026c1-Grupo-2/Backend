@@ -3,7 +3,7 @@ import Reserva from "../models/reserva.model.js";
 import Item from "../models/item.model.js";
 import Lote from "../models/lote.model.js";
 import { soportaTransacciones } from "./aprobacionReserva.js";
-import { registrarMovimiento } from "./movimientoStock.service.js";
+import { registrarMovimiento, stockFisicoItem } from "./movimientoStock.service.js";
 
 /*
  * Cron de ciclo de vida de reservas.
@@ -172,8 +172,44 @@ const notificarPersonal = (reservaId, error) => {
 };
 
 /*
+ * Traza informativa de finalización para materiales REUTILIZABLES (§10): al
+ * cerrarse la reserva, el reutilizable "vuelve" del laboratorio al depósito. NO
+ * hay egreso físico que revertir (el modelo temporal nunca decrementó su stock),
+ * por eso es un movimiento de UBICACIÓN: `cantidad 0` y agregado sin cambio (ver
+ * el invariante en movimientoStock.model.js). Es un evento de sistema (sin
+ * usuarioId) y best-effort: un fallo del historial no debe impedir la
+ * finalización de la reserva ni de las demás.
+ */
+const registrarDevolucionReutilizables = async (reserva) => {
+  for (const mat of reserva.materialesReservados ?? []) {
+    try {
+      const item = await Item.findById(mat.itemId).select("esConsumible");
+      if (!item || item.esConsumible !== false) continue; // solo reutilizables
+      const stockActual = await stockFisicoItem(mat.itemId);
+      await registrarMovimiento({
+        itemId: mat.itemId,
+        tipoMovimiento: "DEVOLUCION",
+        cantidad: 0,
+        cantidadAnterior: stockActual,
+        cantidadNueva: stockActual,
+        reservaId: reserva._id,
+        origenLaboratorioId: reserva.laboratorioId,
+        destinoLaboratorioId: null, // vuelve al depósito
+        observacion: "Devolución de material reutilizable al finalizar la reserva",
+      });
+    } catch (error) {
+      console.error(
+        `[cronReservas] no se pudo registrar la devolución del item ${mat.itemId}:`,
+        error.message
+      );
+    }
+  }
+};
+
+/*
  * §9: promueve En Curso → Finalizada las reservas cuya ventana ya terminó, con
- * claim atómico. No hay devolución de stock (§10).
+ * claim atómico. No hay devolución de stock físico (§10); solo se registra una
+ * traza informativa de DEVOLUCION por cada material reutilizable.
  * @returns {number} cantidad de reservas finalizadas.
  */
 export const finalizarReservasVencidas = async () => {
@@ -189,7 +225,10 @@ export const finalizarReservasVencidas = async () => {
       { $set: { estado: "Finalizada" } },
       { new: true }
     );
-    if (claim) finalizadas += 1;
+    if (claim) {
+      finalizadas += 1;
+      await registrarDevolucionReutilizables(claim);
+    }
   }
   return finalizadas;
 };

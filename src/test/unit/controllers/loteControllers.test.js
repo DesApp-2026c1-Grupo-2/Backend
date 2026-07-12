@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import mongoose from 'mongoose';
 
 const createQueryMock = (resolvedValue) => {
   const mockPromise = Promise.resolve(resolvedValue);
@@ -12,6 +13,8 @@ vi.mock('../../../models/lote.model.js', () => {
   MockLote.find = vi.fn();
   MockLote.findOne = vi.fn();
   MockLote.findOneAndUpdate = vi.fn();
+  MockLote.updateOne = vi.fn();
+  MockLote.create = vi.fn();
   MockLote.aggregate = vi.fn();
   MockLote.countDocuments = vi.fn();
   return { default: MockLote };
@@ -24,13 +27,21 @@ vi.mock('../../../services/movimientoStock.service.js', () => ({
   stockFisicoItem: vi.fn().mockResolvedValue(100),
 }));
 
+// Transacciones: por defecto standalone (sin sesión). Cada test de split parcial
+// que quiera ejercitar el camino transaccional lo overridea.
+vi.mock('../../../services/aprobacionReserva.js', () => ({
+  soportaTransacciones: vi.fn().mockResolvedValue(false),
+}));
+
 import Lote from '../../../models/lote.model.js';
 import { registrarMovimiento, stockFisicoItem } from '../../../services/movimientoStock.service.js';
+import { soportaTransacciones } from '../../../services/aprobacionReserva.js';
 import {
   createLote,
   getLotes,
   getLoteById,
   updateLote,
+  transferirLote,
   deleteLote
 } from '../../../controllers/loteControllers.js';
 
@@ -232,6 +243,232 @@ describe('loteControllers', () => {
 
       await updateLote(req, res);
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+  });
+
+  describe('transferirLote', () => {
+    it('transfiere del depósito a un laboratorio y registra TRANSFERENCIA (cantidad 0)', async () => {
+      const req = mockReq({
+        params: { id: 'L1' },
+        body: { laboratorioDestinoId: 'lab-destino' },
+        usuario: { id: 'u1' },
+      });
+      const res = mockRes();
+      const save = vi.fn().mockResolvedValue({ _id: 'L1', itemId: 'i1', laboratorioId: 'lab-destino' });
+      // Lote en depósito (laboratorioId null).
+      Lote.findOne.mockResolvedValueOnce({ _id: 'L1', itemId: 'i1', laboratorioId: null, save });
+      stockFisicoItem.mockResolvedValueOnce(100);
+
+      await transferirLote(req, res);
+
+      expect(save).toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(registrarMovimiento).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemId: 'i1',
+          tipoMovimiento: 'TRANSFERENCIA',
+          cantidad: 0,
+          cantidadAnterior: 100,
+          cantidadNueva: 100,
+          origenLaboratorioId: null,
+          destinoLaboratorioId: 'lab-destino',
+          usuarioId: 'u1',
+        })
+      );
+    });
+
+    it('devuelve al depósito (destino null) y registra DEVOLUCION', async () => {
+      const req = mockReq({
+        params: { id: 'L1' },
+        body: { laboratorioDestinoId: null },
+        usuario: { id: 'u1' },
+      });
+      const res = mockRes();
+      const save = vi.fn().mockResolvedValue({ _id: 'L1', itemId: 'i1', laboratorioId: null });
+      // Lote actualmente en un laboratorio.
+      Lote.findOne.mockResolvedValueOnce({ _id: 'L1', itemId: 'i1', laboratorioId: 'lab-origen', save });
+      stockFisicoItem.mockResolvedValueOnce(100);
+
+      await transferirLote(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(registrarMovimiento).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tipoMovimiento: 'DEVOLUCION',
+          cantidad: 0,
+          origenLaboratorioId: 'lab-origen',
+          destinoLaboratorioId: null,
+        })
+      );
+    });
+
+    it('rechaza (400) si el destino coincide con la ubicación actual', async () => {
+      const req = mockReq({ params: { id: 'L1' }, body: { laboratorioDestinoId: null } });
+      const res = mockRes();
+      const save = vi.fn();
+      Lote.findOne.mockResolvedValueOnce({ _id: 'L1', itemId: 'i1', laboratorioId: null, save });
+
+      await transferirLote(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(save).not.toHaveBeenCalled();
+      expect(registrarMovimiento).not.toHaveBeenCalled();
+    });
+
+    it('devuelve 404 si el lote no existe', async () => {
+      const req = mockReq({ params: { id: 'L1' }, body: { laboratorioDestinoId: 'lab-x' } });
+      const res = mockRes();
+      Lote.findOne.mockResolvedValueOnce(null);
+
+      await transferirLote(req, res);
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    describe('transferencia parcial (split de cantidad)', () => {
+      it('mueve solo parte del lote: decrementa el origen y crea un lote nuevo en el destino', async () => {
+        const req = mockReq({
+          params: { id: 'L1' },
+          body: { laboratorioDestinoId: 'lab-destino', cantidad: 30 },
+          usuario: { id: 'u1' },
+        });
+        const res = mockRes();
+        const save = vi.fn();
+        // Lote origen en depósito con 100 disponibles.
+        Lote.findOne.mockResolvedValueOnce({
+          _id: 'L1', itemId: 'i1', laboratorioId: null, estado: 'disponible',
+          cantidadDisponible: 100, ubicacion: 'Armario 1', fechaCreacion: new Date(0),
+          fechaVencimiento: null, save,
+        });
+        Lote.updateOne.mockResolvedValueOnce({ acknowledged: true });
+        // create devuelve el lote destino nuevo (array, como Model.create([...])).
+        Lote.create.mockResolvedValueOnce([{ _id: 'L2', itemId: 'i1', cantidadDisponible: 30, laboratorioId: 'lab-destino' }]);
+        stockFisicoItem.mockResolvedValueOnce(100);
+
+        await transferirLote(req, res);
+
+        // No se movió el lote completo (no hubo save del origen).
+        expect(save).not.toHaveBeenCalled();
+        // Decremento atómico del origen.
+        expect(Lote.updateOne).toHaveBeenCalledWith(
+          { _id: 'L1' },
+          { $inc: { cantidadDisponible: -30 } },
+          {}
+        );
+        // Lote nuevo en el destino con la porción movida, heredando datos FEFO/FIFO.
+        expect(Lote.create).toHaveBeenCalledWith(
+          [expect.objectContaining({
+            itemId: 'i1',
+            cantidadDisponible: 30,
+            laboratorioId: 'lab-destino',
+            ubicacion: 'Armario 1',
+            estado: 'disponible',
+          })],
+          {}
+        );
+        expect(res.status).toHaveBeenCalledWith(200);
+        // Movimiento de ubicación: cantidad 0, agregado sin cambio, loteId = destino nuevo.
+        expect(registrarMovimiento).toHaveBeenCalledWith(
+          expect.objectContaining({
+            itemId: 'i1',
+            tipoMovimiento: 'TRANSFERENCIA',
+            cantidad: 0,
+            cantidadAnterior: 100,
+            cantidadNueva: 100,
+            loteId: 'L2',
+            origenLaboratorioId: null,
+            destinoLaboratorioId: 'lab-destino',
+            usuarioId: 'u1',
+          })
+        );
+      });
+
+      it('trata cantidad == cantidadDisponible como move completo (cambia laboratorioId, no crea lote)', async () => {
+        const req = mockReq({
+          params: { id: 'L1' },
+          body: { laboratorioDestinoId: 'lab-destino', cantidad: 100 },
+        });
+        const res = mockRes();
+        const save = vi.fn().mockResolvedValue({ _id: 'L1', itemId: 'i1', laboratorioId: 'lab-destino' });
+        Lote.findOne.mockResolvedValueOnce({
+          _id: 'L1', itemId: 'i1', laboratorioId: null, estado: 'disponible',
+          cantidadDisponible: 100, save,
+        });
+        stockFisicoItem.mockResolvedValueOnce(100);
+
+        await transferirLote(req, res);
+
+        expect(save).toHaveBeenCalled();
+        expect(Lote.create).not.toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(registrarMovimiento).toHaveBeenCalledWith(
+          expect.objectContaining({ tipoMovimiento: 'TRANSFERENCIA', loteId: 'L1' })
+        );
+      });
+
+      it('rechaza (400) si la cantidad supera la disponible del lote', async () => {
+        const req = mockReq({
+          params: { id: 'L1' },
+          body: { laboratorioDestinoId: 'lab-destino', cantidad: 999 },
+        });
+        const res = mockRes();
+        Lote.findOne.mockResolvedValueOnce({
+          _id: 'L1', itemId: 'i1', laboratorioId: null, estado: 'disponible', cantidadDisponible: 100,
+        });
+
+        await transferirLote(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(Lote.updateOne).not.toHaveBeenCalled();
+        expect(Lote.create).not.toHaveBeenCalled();
+        expect(registrarMovimiento).not.toHaveBeenCalled();
+      });
+
+      it('rechaza (400) si se pide transferencia parcial de un lote no disponible', async () => {
+        const req = mockReq({
+          params: { id: 'L1' },
+          body: { laboratorioDestinoId: 'lab-destino', cantidad: 5 },
+        });
+        const res = mockRes();
+        Lote.findOne.mockResolvedValueOnce({
+          _id: 'L1', itemId: 'i1', laboratorioId: null, estado: 'descartado', cantidadDisponible: 0,
+        });
+
+        await transferirLote(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(Lote.create).not.toHaveBeenCalled();
+      });
+
+      it('usa el camino transaccional cuando la conexión lo soporta', async () => {
+        soportaTransacciones.mockResolvedValueOnce(true);
+        const withTransaction = vi.fn(async (fn) => { await fn(); });
+        const endSession = vi.fn();
+        const startSpy = vi.spyOn(mongoose, 'startSession').mockResolvedValueOnce({ withTransaction, endSession });
+
+        const req = mockReq({
+          params: { id: 'L1' },
+          body: { laboratorioDestinoId: null, cantidad: 40 },
+          usuario: { id: 'u1' },
+        });
+        const res = mockRes();
+        Lote.findOne.mockResolvedValueOnce({
+          _id: 'L1', itemId: 'i1', laboratorioId: 'lab-origen', estado: 'disponible',
+          cantidadDisponible: 100, ubicacion: 'Armario 1', fechaCreacion: new Date(0), fechaVencimiento: null,
+        });
+        Lote.updateOne.mockResolvedValueOnce({ acknowledged: true });
+        Lote.create.mockResolvedValueOnce([{ _id: 'L2', itemId: 'i1', cantidadDisponible: 40, laboratorioId: null }]);
+        stockFisicoItem.mockResolvedValueOnce(100);
+
+        await transferirLote(req, res);
+
+        expect(withTransaction).toHaveBeenCalled();
+        expect(endSession).toHaveBeenCalled();
+        // Devolución al depósito (destino null) ⇒ DEVOLUCION.
+        expect(registrarMovimiento).toHaveBeenCalledWith(
+          expect.objectContaining({ tipoMovimiento: 'DEVOLUCION', loteId: 'L2', destinoLaboratorioId: null })
+        );
+        startSpy.mockRestore();
+      });
     });
   });
 

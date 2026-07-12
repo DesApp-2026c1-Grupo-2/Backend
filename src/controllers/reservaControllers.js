@@ -3,6 +3,7 @@ import Equipo from "../models/equipo.model.js";
 import Lote from "../models/lote.model.js";
 import Pedido from "../models/pedido.model.js";
 import Item from "../models/item.model.js";
+import { registrarMovimiento, stockFisicoItem } from "../services/movimientoStock.service.js";
 
 // Controlador para listar reservas activas filtradas por un laboratorio específico
 const getReservasActivasPorLaboratorio = async (req, res) => {
@@ -82,10 +83,38 @@ const cancelarReserva = async (req, res) => {
       for (const material of reserva.materialesReservados) {
         const item = await Item.findById(material.itemId).select('esConsumible');
         if (!item || item.esConsumible !== true) continue; // reutilizable: nada que reponer
+
+        // Monto físico que se repone (suma de lo consumido de cada lote) y foto del
+        // agregado ANTES de reponer, para registrar la DEVOLUCION con delta positivo.
+        const totalRepuesto = material.lotesUsados.reduce((acc, l) => acc + l.cantidad, 0);
+        const stockAntes = await stockFisicoItem(material.itemId);
+
         for (const lote of material.lotesUsados) {
           await Lote.findByIdAndUpdate(lote.loteId, {
             $inc: { cantidadDisponible: lote.cantidad }
           });
+        }
+
+        // DEVOLUCION: reposición física real del consumo (ingreso, cantidad > 0).
+        // Best-effort: este controlador no es transaccional, así que un fallo del
+        // historial no debe romper la cancelación (mismo criterio que loteControllers).
+        if (totalRepuesto > 0) {
+          try {
+            const stockDespues = await stockFisicoItem(material.itemId);
+            await registrarMovimiento({
+              itemId: material.itemId,
+              tipoMovimiento: 'DEVOLUCION',
+              cantidad: totalRepuesto,
+              cantidadAnterior: stockAntes,
+              cantidadNueva: stockDespues,
+              reservaId: reserva._id,
+              origenLaboratorioId: reserva.laboratorioId,
+              usuarioId: req.usuario?.id,
+              observacion: 'Reposición de stock por cancelación de reserva'
+            });
+          } catch (error) {
+            console.error("[cancelarReserva] no se pudo registrar el movimiento de stock:", error.message);
+          }
         }
       }
     }

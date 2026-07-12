@@ -154,13 +154,25 @@ export const updatePedidoService = async (pedidoId, body, usuario) => {
   };
 
   const cambios = {};
-  const camposSimples = ["materia", "alumnos", "duracionClase", "fechaHora", "laboratorio"];
+  const camposSimples = ["materia", "alumnos", "duracionClase", "fechaHora"];
 
   for (const campo of camposSimples) {
     if (actualizacion[campo] === undefined) continue;
     if (normalize(pedidoExistente[campo]) !== normalize(actualizacion[campo])) {
       cambios[campo] = { antes: pedidoExistente[campo], despues: actualizacion[campo] };
     }
+  }
+
+  if (actualizacion.laboratorio !== undefined && normalize(pedidoExistente.laboratorio) !== normalize(actualizacion.laboratorio)) {
+    const Laboratorio = (await import("../models/laboratorio.model.js")).default;
+    const [labAntes, labDespues] = await Promise.all([
+      pedidoExistente.laboratorio ? Laboratorio.findById(pedidoExistente.laboratorio, "nombre") : null,
+      actualizacion.laboratorio ? Laboratorio.findById(actualizacion.laboratorio, "nombre") : null
+    ]);
+    cambios.laboratorio = {
+      antes: labAntes ? labAntes.nombre : (pedidoExistente.laboratorio || "—"),
+      despues: labDespues ? labDespues.nombre : (actualizacion.laboratorio || "—")
+    };
   }
 
   if (actualizacion.fechaInicioReal && actualizacion.fechaFinReal) {
@@ -419,11 +431,6 @@ export const finalizarPedidoService = async (pedidoId, body, usuario) => {
   registrarHistorial(pedido, usuario.id, "FINALIZACION", "Pedido finalizado con reporte de uso.", {
     estado: { antes: "Aceptado", despues: "Finalizado" },
     reporteFinal: { descartes: descartesSnapshot, desperfectos: desperfectosSnapshot },
-  });;
-
-  registrarHistorial(pedido, usuario.id, "FINALIZACION", "Pedido finalizado con reporte de uso.", {
-    estado: { antes: "Aceptado", despues: "Finalizado" },
-    reporteFinal: { descartes, desperfectos },
   });
 
   const pedidoFinalizado = await pedido.save();

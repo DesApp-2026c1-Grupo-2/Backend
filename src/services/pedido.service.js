@@ -32,6 +32,12 @@ export const getPedidosService = async (usuario) => {
   const filtro = { activo: { $ne: false } };
   if (rol === "DOCENTE") filtro.docente = id;
 
+  // Actualizar automáticamente a "Expirado" pedidos pendientes cuya fechaHora ya pasó
+  await Pedido.updateMany(
+    { estado: "Pendiente", fechaHora: { $lt: new Date() } },
+    { $set: { estado: "Expirado" } }
+  );
+
   const pedidos = await Pedido.find(filtro)
     .populate("docente", "nombre apellido email")
     .populate("laboratorio", "nombre tipo")
@@ -54,6 +60,12 @@ export const getPedidosService = async (usuario) => {
 // ─── Obtener pedido por ID ────────────────────────────────────────────────────
 export const getPedidoByIdService = async (pedidoId, usuario) => {
   const { id: userId, rol } = usuario;
+
+  // Actualizar automáticamente a "Expirado" si es pendiente y su fechaHora ya pasó
+  await Pedido.updateMany(
+    { _id: pedidoId, estado: "Pendiente", fechaHora: { $lt: new Date() } },
+    { $set: { estado: "Expirado" } }
+  );
 
   const pedido = await Pedido.findById(pedidoId)
     .populate("docente", "nombre apellido email")

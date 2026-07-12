@@ -114,11 +114,19 @@ describe('itemControllers', () => {
   describe('getItems', () => {
     it('devuelve listado paginado con stockDisponible por ítem (200)', async () => {
       // Joi ya coercionó esConsumible a boolean antes del controller.
+      const id1 = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+      const id2 = 'bbbbbbbbbbbbbbbbbbbbbbbb';
       const req = mockReq({ query: { tipo: 'reactivo', esConsumible: true } });
       const res = mockRes();
-      const itemMock = { _id: '1', nombre: 'Reactivo', toObject: () => ({ _id: '1', nombre: 'Reactivo' }) };
-      Item.find.mockResolvedValueOnce([itemMock]);
-      Lote.aggregate.mockResolvedValueOnce([]);
+      Item.find.mockReturnValueOnce(
+        createFindChainMock([
+          itemDoc(id1, { nombre: 'Reactivo A' }),
+          itemDoc(id2, { nombre: 'Reactivo B' }),
+        ])
+      );
+      Item.countDocuments.mockResolvedValueOnce(2);
+      // stockDisponiblePorItem agrega por itemId: solo id1 tiene stock disponible.
+      Lote.aggregate.mockResolvedValueOnce([{ _id: id1, stock: 40 }]);
 
       await getItems(req, res);
 

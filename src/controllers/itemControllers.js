@@ -70,23 +70,29 @@ const getItems = async (req, res) => {
   }
 };
 
-    const items = await Item.find(filtros);
-
-    // Calcular stock disponible para todos los items en una sola query
-    const stockPorItem = await Lote.aggregate([
-      { $match: { estado: 'disponible', activo: { $ne: false } } },
-      { $group: { _id: '$itemId', stockTotal: { $sum: '$cantidadDisponible' } } }
+// R: Estadísticas de inventario para el dashboard.
+// Conteo de items por tipo (sustancia/reactivo/material), equipos activos
+// (colección Equipo) y descartes (lotes en estado 'descartado').
+const getEstadisticasItems = async (req, res) => {
+  try {
+    const porTipo = await Item.aggregate([
+      { $match: { activo: { $ne: false } } },
+      { $group: { _id: "$tipo", count: { $sum: 1 } } },
     ]);
-    const stockMap = Object.fromEntries(
-      stockPorItem.map((s) => [s._id.toString(), s.stockTotal])
-    );
+    const conteos = Object.fromEntries(porTipo.map((t) => [t._id, t.count]));
 
-    const itemsConStock = items.map((item) => ({
-      ...item.toObject(),
-      cantidadDisponible: stockMap[item._id.toString()] ?? 0,
-    }));
+    const [equipos, descartes] = await Promise.all([
+      Equipo.countDocuments({ activo: { $ne: false } }),
+      Lote.countDocuments({ estado: "descartado", activo: { $ne: false } }),
+    ]);
 
-    return res.status(200).json(itemsConStock);
+    return res.status(200).json({
+      equipos,
+      materiales: conteos.material ?? 0,
+      reactivos: conteos.reactivo ?? 0,
+      sustancias: conteos.sustancia ?? 0,
+      descartes,
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

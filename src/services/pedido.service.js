@@ -32,6 +32,12 @@ export const getPedidosService = async (usuario) => {
   const filtro = { activo: { $ne: false } };
   if (rol === "DOCENTE") filtro.docente = id;
 
+  // Actualizar automáticamente a "Expirado" pedidos pendientes cuya fechaHora ya pasó
+  await Pedido.updateMany(
+    { estado: "Pendiente", fechaHora: { $lt: new Date() } },
+    { $set: { estado: "Expirado" } }
+  );
+
   const pedidos = await Pedido.find(filtro)
     .populate("docente", "nombre apellido email")
     .populate("laboratorio", "nombre tipo")
@@ -54,6 +60,12 @@ export const getPedidosService = async (usuario) => {
 // ─── Obtener pedido por ID ────────────────────────────────────────────────────
 export const getPedidoByIdService = async (pedidoId, usuario) => {
   const { id: userId, rol } = usuario;
+
+  // Actualizar automáticamente a "Expirado" si es pendiente y su fechaHora ya pasó
+  await Pedido.updateMany(
+    { _id: pedidoId, estado: "Pendiente", fechaHora: { $lt: new Date() } },
+    { $set: { estado: "Expirado" } }
+  );
 
   const pedido = await Pedido.findById(pedidoId)
     .populate("docente", "nombre apellido email")
@@ -496,12 +508,23 @@ export const updateEstadoService = async (pedidoId, body, usuario) => {
     pedido.motivoRechazo = motivoRechazo || "Sin motivo especificado";
   }
 
+  let mensajeHistorial = `Estado cambiado de "${estadoAnterior}" a "${estado}"`;
+  
+  if (estado === "Cancelado") {
+    if (estadoAnterior === "Aceptado") {
+      mensajeHistorial += ". Se canceló el pedido y se liberaron las reservas, el stock y el equipamiento asociado.";
+    } else {
+      mensajeHistorial += ". El pedido fue cancelado antes de ser aprobado, por lo que no requirió liberar reservas.";
+    }
+  } else if (estado === "Rechazado") {
+    mensajeHistorial += `. Motivo: ${pedido.motivoRechazo}`;
+  }
+
   registrarHistorial(
     pedido,
     usuario.id,
     "CAMBIO_ESTADO",
-    `Estado cambiado de "${estadoAnterior}" a "${estado}"` +
-      (estado === "Rechazado" ? `. Motivo: ${pedido.motivoRechazo}` : ""),
+    mensajeHistorial,
     { estado: { antes: estadoAnterior, despues: estado } }
   );
 

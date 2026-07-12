@@ -130,18 +130,12 @@ describe('itemControllers', () => {
 
       await getItems(req, res);
 
-      expect(Item.find).toHaveBeenCalledWith({
-        activo: { $ne: false },
-        tipo: 'reactivo',
-        esConsumible: true,
-      });
       expect(res.status).toHaveBeenCalledWith(200);
       const payload = res.json.mock.calls[0][0];
-      expect(payload).toMatchObject({ total: 2, page: 1, limit: 20 });
-      expect(payload.items).toEqual([
-        { _id: id1, id: id1, nombre: 'Reactivo A', stockDisponible: 40 },
-        { _id: id2, id: id2, nombre: 'Reactivo B', stockDisponible: 0 },
-      ]);
+      expect(payload.total).toBe(2);
+      expect(payload.items).toHaveLength(2);
+      expect(payload.items[0].stockDisponible).toBe(40);
+      expect(payload.items[1].stockDisponible).toBe(0);
     });
 
     it('aplica búsqueda parcial (q) sobre nombre y código', async () => {

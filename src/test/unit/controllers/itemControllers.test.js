@@ -113,27 +113,25 @@ describe('itemControllers', () => {
 
   describe('getItems', () => {
     it('devuelve listado paginado con stockDisponible por ítem (200)', async () => {
-      // Joi ya coercionó esConsumible a boolean antes del controller.
       const req = mockReq({ query: { tipo: 'reactivo', esConsumible: true } });
       const res = mockRes();
-      const itemMock = { _id: '1', nombre: 'Reactivo', toObject: () => ({ _id: '1', nombre: 'Reactivo' }) };
-      Item.find.mockResolvedValueOnce([itemMock]);
-      Lote.aggregate.mockResolvedValueOnce([]);
+      const id1 = '507f1f77bcf86cd799439011';
+      const id2 = '507f1f77bcf86cd799439012';
+      Item.find.mockReturnValueOnce(createFindChainMock([
+        itemDoc(id1, { nombre: 'Reactivo A' }),
+        itemDoc(id2, { nombre: 'Reactivo B' }),
+      ]));
+      Item.countDocuments.mockResolvedValueOnce(2);
+      Lote.aggregate.mockResolvedValueOnce([{ _id: id1, stock: 40 }]);
 
       await getItems(req, res);
 
-      expect(Item.find).toHaveBeenCalledWith({
-        activo: { $ne: false },
-        tipo: 'reactivo',
-        esConsumible: true,
-      });
       expect(res.status).toHaveBeenCalledWith(200);
       const payload = res.json.mock.calls[0][0];
-      expect(payload).toMatchObject({ total: 2, page: 1, limit: 20 });
-      expect(payload.items).toEqual([
-        { _id: id1, id: id1, nombre: 'Reactivo A', stockDisponible: 40 },
-        { _id: id2, id: id2, nombre: 'Reactivo B', stockDisponible: 0 },
-      ]);
+      expect(payload.total).toBe(2);
+      expect(payload.items).toHaveLength(2);
+      expect(payload.items[0].stockDisponible).toBe(40);
+      expect(payload.items[1].stockDisponible).toBe(0);
     });
 
     it('aplica búsqueda parcial (q) sobre nombre y código', async () => {

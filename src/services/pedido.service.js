@@ -508,12 +508,23 @@ export const updateEstadoService = async (pedidoId, body, usuario) => {
     pedido.motivoRechazo = motivoRechazo || "Sin motivo especificado";
   }
 
+  let mensajeHistorial = `Estado cambiado de "${estadoAnterior}" a "${estado}"`;
+  
+  if (estado === "Cancelado") {
+    if (estadoAnterior === "Aceptado") {
+      mensajeHistorial += ". Se canceló el pedido y se liberaron las reservas, el stock y el equipamiento asociado.";
+    } else {
+      mensajeHistorial += ". El pedido fue cancelado antes de ser aprobado, por lo que no requirió liberar reservas.";
+    }
+  } else if (estado === "Rechazado") {
+    mensajeHistorial += `. Motivo: ${pedido.motivoRechazo}`;
+  }
+
   registrarHistorial(
     pedido,
     usuario.id,
     "CAMBIO_ESTADO",
-    `Estado cambiado de "${estadoAnterior}" a "${estado}"` +
-      (estado === "Rechazado" ? `. Motivo: ${pedido.motivoRechazo}` : ""),
+    mensajeHistorial,
     { estado: { antes: estadoAnterior, despues: estado } }
   );
 

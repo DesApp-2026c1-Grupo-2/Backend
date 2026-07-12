@@ -25,6 +25,10 @@ const reservaSchema = new mongoose.Schema({
   materialesReservados: [{
     itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item', required: true },
     cantidadTotal: { type: Number, required: true },
+    // Consumo físico real reportado al finalizar la reserva a mano
+    // (PATCH /reservas/:id/finalizar). Ausente = se consumió todo lo reservado
+    // (comportamiento por defecto del cron). Para reutilizables no aplica (vuelven).
+    cantidadConsumidaReal: { type: Number },
     lotesUsados: [{
       loteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lote', required: true },
       cantidad: { type: Number, required: true }

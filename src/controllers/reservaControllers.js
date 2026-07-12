@@ -1,9 +1,9 @@
+import mongoose from "mongoose";
 import Reserva from "../models/reserva.model.js";
-import Equipo from "../models/equipo.model.js";
-import Lote from "../models/lote.model.js";
 import Pedido from "../models/pedido.model.js";
 import Item from "../models/item.model.js";
-import { registrarMovimiento, stockFisicoItem } from "../services/movimientoStock.service.js";
+import { soportaTransacciones } from "../services/aprobacionReserva.js";
+import { devolverYRegistrar } from "../services/devolucionReserva.js";
 
 // Controlador para listar reservas activas filtradas por un laboratorio específico
 const getReservasActivasPorLaboratorio = async (req, res) => {
@@ -73,48 +73,24 @@ const cancelarReserva = async (req, res) => {
     }
 
     // 1. Restaurar stock SOLO de lo que fue físicamente descontado.
-    //    Con el modelo de disponibilidad temporal, cantidadDisponible se
-    //    decrementa únicamente cuando la reserva pasó a "En Curso" y el material
-    //    es consumible (cronReservas.ejecutarConsumoFisico). En cualquier otro
-    //    caso —reserva Pendiente, o materiales reutilizables— los lotesUsados son
-    //    solo punteros FIFO y nunca se restó nada: reponer inflaría el inventario.
+    //    cantidadDisponible se decrementa cuando la reserva pasa a "En Curso"
+    //    (cronReservas.ejecutarConsumoFisico), para consumibles Y reutilizables.
+    //    En cualquier otro estado —Pendiente/Conflicto— no se decrementó nada, así
+    //    que no se repone (reponer inflaría el inventario). Se devuelve el 100% de
+    //    lo que salió (todo lotesUsados). Best-effort: este controlador no es
+    //    transaccional, un fallo del historial no debe romper la cancelación.
     const restauraStock = reserva.estado === 'En Curso';
     if (restauraStock) {
       for (const material of reserva.materialesReservados) {
-        const item = await Item.findById(material.itemId).select('esConsumible');
-        if (!item || item.esConsumible !== true) continue; // reutilizable: nada que reponer
-
-        // Monto físico que se repone (suma de lo consumido de cada lote) y foto del
-        // agregado ANTES de reponer, para registrar la DEVOLUCION con delta positivo.
-        const totalRepuesto = material.lotesUsados.reduce((acc, l) => acc + l.cantidad, 0);
-        const stockAntes = await stockFisicoItem(material.itemId);
-
-        for (const lote of material.lotesUsados) {
-          await Lote.findByIdAndUpdate(lote.loteId, {
-            $inc: { cantidadDisponible: lote.cantidad }
+        const total = (material.lotesUsados ?? []).reduce((acc, l) => acc + l.cantidad, 0);
+        if (total <= 0) continue;
+        try {
+          await devolverYRegistrar(reserva, material, total, {
+            usuarioId: req.usuario?.id,
+            observacion: 'Reposición de stock por cancelación de reserva'
           });
-        }
-
-        // DEVOLUCION: reposición física real del consumo (ingreso, cantidad > 0).
-        // Best-effort: este controlador no es transaccional, así que un fallo del
-        // historial no debe romper la cancelación (mismo criterio que loteControllers).
-        if (totalRepuesto > 0) {
-          try {
-            const stockDespues = await stockFisicoItem(material.itemId);
-            await registrarMovimiento({
-              itemId: material.itemId,
-              tipoMovimiento: 'DEVOLUCION',
-              cantidad: totalRepuesto,
-              cantidadAnterior: stockAntes,
-              cantidadNueva: stockDespues,
-              reservaId: reserva._id,
-              origenLaboratorioId: reserva.laboratorioId,
-              usuarioId: req.usuario?.id,
-              observacion: 'Reposición de stock por cancelación de reserva'
-            });
-          } catch (error) {
-            console.error("[cancelarReserva] no se pudo registrar el movimiento de stock:", error.message);
-          }
+        } catch (error) {
+          console.error("[cancelarReserva] no se pudo reponer/registrar el stock:", error.message);
         }
       }
     }
@@ -138,8 +114,107 @@ const cancelarReserva = async (req, res) => {
   }
 };
 
+/*
+ * Finalización MANUAL de una reserva En Curso reportando el consumo real de cada
+ * consumible (§10). Devuelve el sobrante (reservado − consumido) al stock y, para
+ * reutilizables, devuelve el 100%. El cron sigue finalizando por tiempo las que
+ * nadie cierra a mano, asumiendo consumo total de consumibles.
+ *
+ * Body: { consumos?: [{ itemId, cantidadConsumida }] }. Los itemId omitidos se dan
+ * por consumidos en su totalidad. Un consumo mayor a lo reservado se clampa a lo
+ * reservado (no se puede consumir más de lo que salió).
+ */
+const finalizarReserva = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { consumos = [] } = req.body ?? {};
+    const consumoPorItem = new Map(
+      consumos.map((c) => [String(c.itemId), c.cantidadConsumida])
+    );
+
+    // Claim atómico En Curso → Finalizada + devoluciones, en transacción si se
+    // soporta (así no compite con el cron ni deja stock a medio devolver).
+    const runFinalizar = async (session) => {
+      const claimOpts = { new: true, ...(session ? { session } : {}) };
+      const reserva = await Reserva.findOneAndUpdate(
+        { _id: id, estado: "En Curso" },
+        { $set: { estado: "Finalizada" } },
+        claimOpts
+      );
+      if (!reserva) return null; // no existe, o no está En Curso (ya la tomó el cron)
+
+      for (const material of reserva.materialesReservados) {
+        const item = await Item.findById(material.itemId)
+          .select("esConsumible")
+          .session(session ?? null);
+        const decrementado = (material.lotesUsados ?? []).reduce((acc, l) => acc + l.cantidad, 0);
+        if (decrementado <= 0) continue;
+
+        const esReutilizable = item && item.esConsumible === false;
+        let aDevolver;
+        if (esReutilizable) {
+          aDevolver = decrementado; // el reutilizable vuelve completo
+        } else {
+          const reportado = consumoPorItem.get(String(material.itemId));
+          const consumido = Math.min(reportado ?? decrementado, decrementado);
+          material.cantidadConsumidaReal = consumido;
+          aDevolver = decrementado - consumido;
+        }
+        if (aDevolver <= 0) continue;
+
+        const repuesto = await devolverYRegistrar(reserva, material, aDevolver, {
+          session,
+          usuarioId: req.usuario?.id,
+          observacion: esReutilizable
+            ? "Devolución de material reutilizable al finalizar la reserva"
+            : "Devolución de consumible no utilizado al finalizar la reserva",
+        });
+        // Ajustar lotesUsados a lo realmente consumido (mismo orden inverso al FIFO
+        // que usó la devolución), para que la traza refleje el consumo real.
+        for (const r of repuesto) {
+          const lu = material.lotesUsados.find((l) => String(l.loteId) === String(r.loteId));
+          if (lu) lu.cantidad -= r.cantidad;
+        }
+        material.lotesUsados = material.lotesUsados.filter((l) => l.cantidad > 0);
+      }
+
+      await reserva.save(session ? { session } : undefined);
+      return reserva;
+    };
+
+    let reserva;
+    if (await soportaTransacciones()) {
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          reserva = await runFinalizar(session);
+        });
+      } finally {
+        await session.endSession();
+      }
+    } else {
+      reserva = await runFinalizar(null);
+    }
+
+    if (!reserva) {
+      const existe = await Reserva.exists({ _id: id });
+      return res.status(existe ? 400 : 404).json({
+        error: existe
+          ? "Solo se puede finalizar manualmente una reserva En Curso"
+          : "Reserva no encontrada",
+      });
+    }
+
+    return res.json({ message: "Reserva finalizada exitosamente", reserva });
+  } catch (error) {
+    console.error("Error en finalizarReserva:", error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
 export {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
-  cancelarReserva
+  cancelarReserva,
+  finalizarReserva
 };

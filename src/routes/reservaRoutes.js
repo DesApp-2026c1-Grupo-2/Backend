@@ -1,7 +1,9 @@
 import express from "express";
 const router = express.Router();
 import * as reservaControllers from "../controllers/reservaControllers.js";
-import { validarJWT } from "../middlewares/validateJWT.js";
+import { validarJWT, validarRol } from "../middlewares/validateJWT.js";
+import { validate } from "../middlewares/validator.middleware.js";
+import { finalizarReservaSchema } from "../schemas/reservaSchema.js";
 
 // GET: Obtener todas las reservas activas (Soporta query params ?startDate=...&endDate=...)
 router.get("/activas", validarJWT, reservaControllers.getReservasActivas);
@@ -11,5 +13,15 @@ router.get("/laboratorio/:laboratorioId", validarJWT, reservaControllers.getRese
 
 // PATCH: Cancelar una reserva y liberar sus recursos (equipos y stock)
 router.patch("/:id/cancelar", validarJWT, reservaControllers.cancelarReserva);
+
+// PATCH: Finalizar a mano una reserva En Curso reportando el consumo real de los
+// consumibles (devuelve el sobrante). Gestionado por PERSONAL/ADMIN.
+router.patch(
+  "/:id/finalizar",
+  validarJWT,
+  validarRol("PERSONAL", "ADMIN"),
+  validate(finalizarReservaSchema),
+  reservaControllers.finalizarReserva
+);
 
 export default router;

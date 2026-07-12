@@ -15,12 +15,15 @@ import mongoose from "mongoose";
  * (suma de cantidadDisponible de sus lotes disponibles), no al lote individual.
  *
  * EXCEPCIÓN — movimientos de UBICACIÓN (`TRANSFERENCIA` y la `DEVOLUCION` de un lote
- * que vuelve al depósito): trasladan un lote entre depósito y laboratorios sin cambiar
- * el stock agregado del item. Se registran con `cantidad = 0` y
+ * que vuelve al depósito por traslado): mueven un lote entre depósito y laboratorios sin
+ * cambiar el stock agregado del item. Se registran con `cantidad = 0` y
  * `cantidadAnterior == cantidadNueva` (el agregado no se mueve); el detalle del traslado
- * vive en `loteId`, `origenLaboratorioId`, `destinoLaboratorioId` y `observacion`. La
- * otra `DEVOLUCION` —reposición física de consumibles al cancelar una reserva— sí es un
- * ingreso real y respeta el invariante con `cantidad > 0`.
+ * vive en `loteId`, `origenLaboratorioId`, `destinoLaboratorioId` y `observacion`.
+ *
+ * Las demás `DEVOLUCION` son ingresos físicos REALES (`cantidad > 0`) que respetan el
+ * invariante: reposición de stock al cancelar una reserva, devolución del reutilizable al
+ * finalizar (§10, vuelve el 100% de lo que salió) y devolución del sobrante de consumible
+ * en la finalización manual (reservado − consumido).
  */
 const movimientoStockSchema = new mongoose.Schema({
   itemId: {

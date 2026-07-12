@@ -12,14 +12,12 @@ vi.mock('../../../models/reserva.model.js', () => ({
   default: {
     find: vi.fn(),
     findById: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+    exists: vi.fn(),
     prototype: { save: vi.fn() }
   }
 }));
 
-// Mocks de dependencias para cancelar reserva (reposición de lotes y rechazo del pedido)
-vi.mock('../../../models/lote.model.js', () => ({
-  default: { findByIdAndUpdate: vi.fn() }
-}));
 vi.mock('../../../models/pedido.model.js', () => ({
   default: { findByIdAndUpdate: vi.fn() }
 }));
@@ -27,26 +25,35 @@ vi.mock('../../../models/item.model.js', () => ({
   default: { findById: vi.fn() }
 }));
 
-// Historial de stock: dependencia cross-service, se mockea (como en loteControllers.test).
-vi.mock('../../../services/movimientoStock.service.js', () => ({
-  registrarMovimiento: vi.fn().mockResolvedValue({}),
-  stockFisicoItem: vi.fn().mockResolvedValue(100),
+// Transacciones: forzamos el camino degradado (sin sesión) para no depender de mongoose.
+vi.mock('../../../services/aprobacionReserva.js', () => ({
+  soportaTransacciones: vi.fn().mockResolvedValue(false),
+}));
+
+// Devolución de stock: servicio compartido, se mockea para aislar el controller
+// (su lógica de $inc + DEVOLUCION se prueba en devolucionReserva/movimientoStock).
+vi.mock('../../../services/devolucionReserva.js', () => ({
+  devolverYRegistrar: vi.fn().mockResolvedValue([]),
 }));
 
 import Reserva from '../../../models/reserva.model.js';
-import Lote from '../../../models/lote.model.js';
 import Pedido from '../../../models/pedido.model.js';
 import Item from '../../../models/item.model.js';
-import { registrarMovimiento } from '../../../services/movimientoStock.service.js';
-
-// Item.findById(...).select('esConsumible') → devuelve el item indicado
-const mockItem = (esConsumible) =>
-  Item.findById.mockReturnValue({ select: vi.fn().mockResolvedValue({ esConsumible }) });
+import { devolverYRegistrar } from '../../../services/devolucionReserva.js';
 import {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
-  cancelarReserva
+  cancelarReserva,
+  finalizarReserva
 } from '../../../controllers/reservaControllers.js';
+
+// Item.findById(id).select('esConsumible').session(session) → item indicado.
+const mockItem = (esConsumible) =>
+  Item.findById.mockReturnValue({
+    select: vi.fn().mockReturnValue({
+      session: vi.fn().mockResolvedValue({ esConsumible }),
+    }),
+  });
 
 const mockReq = (overrides = {}) => ({ params: {}, body: {}, query: {}, ...overrides });
 const mockRes = () => {
@@ -113,79 +120,164 @@ describe('reservaControllers', () => {
 
       await cancelarReserva(req, res);
 
-      // Validación 1: NO se toca el stock (reponer inflaría el inventario)
-      expect(Lote.findByIdAndUpdate).not.toHaveBeenCalled();
-
-      // Validación 2: El modelo de la reserva cambia su estado
+      // NO se repone (reponer inflaría el inventario).
+      expect(devolverYRegistrar).not.toHaveBeenCalled();
       expect(mockReserva.estado).toBe('Cancelada');
       expect(mockReserva.save).toHaveBeenCalled();
-
-      // Validación 3: Se sincroniza el pedido marcándolo como Rechazado
       expect(Pedido.findByIdAndUpdate).toHaveBeenCalledWith('p_1', { estado: 'Rechazado' });
-
-      // No hubo reposición física ⇒ no se registra ningún movimiento.
-      expect(registrarMovimiento).not.toHaveBeenCalled();
     });
 
-    it('restaura el stock de consumibles al cancelar una reserva En Curso (ya se descontó físicamente) (200)', async () => {
-      const req = mockReq({ params: { id: 'r_2' } });
+    it('restaura el stock (consumible O reutilizable) al cancelar una reserva En Curso (ya se descontó físicamente) (200)', async () => {
+      const req = mockReq({ params: { id: 'r_2' }, usuario: { id: 'u1' } });
       const res = mockRes();
 
+      const material = { itemId: 'item_1', lotesUsados: [{ loteId: 'lote_1', cantidad: 5 }] };
       const mockReserva = {
         _id: 'r_2',
         estado: 'En Curso',
         pedidoId: 'p_2',
-        materialesReservados: [{
-          itemId: 'item_1',
-          lotesUsados: [{ loteId: 'lote_1', cantidad: 5 }]
-        }],
+        laboratorioId: 'lab_1',
+        materialesReservados: [material],
         save: vi.fn().mockResolvedValue(true)
       };
       Reserva.findById.mockResolvedValue(mockReserva);
-      mockItem(true); // consumible → sí se había decrementado
 
       await cancelarReserva(req, res);
 
-      expect(Lote.findByIdAndUpdate).toHaveBeenCalledWith('lote_1', {
-        $inc: { cantidadDisponible: 5 }
-      });
+      // Se repone el 100% de lo que salió (todo lotesUsados = 5).
+      expect(devolverYRegistrar).toHaveBeenCalledWith(
+        mockReserva,
+        material,
+        5,
+        expect.objectContaining({ usuarioId: 'u1', observacion: expect.any(String) })
+      );
       expect(mockReserva.estado).toBe('Cancelada');
       expect(Pedido.findByIdAndUpdate).toHaveBeenCalledWith('p_2', { estado: 'Rechazado' });
-
-      // Reposición física del consumible ⇒ DEVOLUCION con delta positivo.
-      expect(registrarMovimiento).toHaveBeenCalledWith(
-        expect.objectContaining({
-          itemId: 'item_1',
-          tipoMovimiento: 'DEVOLUCION',
-          cantidad: 5,
-          reservaId: 'r_2',
-        })
-      );
     });
 
-    it('NO restaura stock de materiales reutilizables aunque la reserva esté En Curso (nunca se decrementaron) (200)', async () => {
+    it('también repone materiales reutilizables En Curso (ahora se decrementan al iniciar) (200)', async () => {
       const req = mockReq({ params: { id: 'r_3' } });
       const res = mockRes();
 
+      const material = { itemId: 'item_2', lotesUsados: [{ loteId: 'lote_2', cantidad: 3 }] };
       const mockReserva = {
         _id: 'r_3',
         estado: 'En Curso',
         pedidoId: 'p_3',
-        materialesReservados: [{
-          itemId: 'item_2',
-          lotesUsados: [{ loteId: 'lote_2', cantidad: 3 }]
-        }],
+        laboratorioId: 'lab_1',
+        materialesReservados: [material],
         save: vi.fn().mockResolvedValue(true)
       };
       Reserva.findById.mockResolvedValue(mockReserva);
-      mockItem(false); // reutilizable → nunca se decrementó
 
       await cancelarReserva(req, res);
 
-      expect(Lote.findByIdAndUpdate).not.toHaveBeenCalled();
+      // El reutilizable En Curso también se repone (ya no se distingue por tipo).
+      expect(devolverYRegistrar).toHaveBeenCalledWith(
+        mockReserva,
+        material,
+        3,
+        expect.any(Object)
+      );
       expect(mockReserva.estado).toBe('Cancelada');
-      // Reutilizable: nada se repuso ⇒ no se registra DEVOLUCION.
-      expect(registrarMovimiento).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('finalizarReserva', () => {
+    it('devuelve el sobrante de un consumible parcialmente usado (reservado − consumido) y setea cantidadConsumidaReal (200)', async () => {
+      const req = mockReq({
+        params: { id: 'r_1' },
+        usuario: { id: 'u1' },
+        body: { consumos: [{ itemId: 'item_1', cantidadConsumida: 7 }] },
+      });
+      const res = mockRes();
+
+      const material = { itemId: 'item_1', lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
+      const reserva = {
+        _id: 'r_1', estado: 'Finalizada', laboratorioId: 'lab_1',
+        materialesReservados: [material],
+        save: vi.fn().mockResolvedValue(true),
+      };
+      Reserva.findOneAndUpdate.mockResolvedValue(reserva); // claim OK
+      mockItem(true); // consumible
+
+      await finalizarReserva(req, res);
+
+      // Claim atómico En Curso → Finalizada.
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'r_1', estado: 'En Curso' },
+        { $set: { estado: 'Finalizada' } },
+        { new: true }
+      );
+      // Devuelve el sobrante (10 − 7 = 3).
+      expect(devolverYRegistrar).toHaveBeenCalledWith(
+        reserva, material, 3, expect.objectContaining({ usuarioId: 'u1' })
+      );
+      expect(material.cantidadConsumidaReal).toBe(7);
+      expect(reserva.save).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ reserva }));
+    });
+
+    it('NO devuelve nada si el consumible se consumió por completo (default = todo) (200)', async () => {
+      const req = mockReq({ params: { id: 'r_1' }, usuario: { id: 'u1' }, body: {} });
+      const res = mockRes();
+
+      const material = { itemId: 'item_1', lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
+      const reserva = {
+        _id: 'r_1', estado: 'Finalizada', laboratorioId: 'lab_1',
+        materialesReservados: [material],
+        save: vi.fn().mockResolvedValue(true),
+      };
+      Reserva.findOneAndUpdate.mockResolvedValue(reserva);
+      mockItem(true); // consumible
+
+      await finalizarReserva(req, res);
+
+      expect(devolverYRegistrar).not.toHaveBeenCalled();
+      expect(material.cantidadConsumidaReal).toBe(10); // consumió todo
+    });
+
+    it('devuelve el 100% de un material reutilizable al finalizar (200)', async () => {
+      const req = mockReq({ params: { id: 'r_1' }, usuario: { id: 'u1' }, body: {} });
+      const res = mockRes();
+
+      const material = { itemId: 'item_2', lotesUsados: [{ loteId: 'lote_2', cantidad: 4 }] };
+      const reserva = {
+        _id: 'r_1', estado: 'Finalizada', laboratorioId: 'lab_1',
+        materialesReservados: [material],
+        save: vi.fn().mockResolvedValue(true),
+      };
+      Reserva.findOneAndUpdate.mockResolvedValue(reserva);
+      mockItem(false); // reutilizable
+
+      await finalizarReserva(req, res);
+
+      expect(devolverYRegistrar).toHaveBeenCalledWith(
+        reserva, material, 4, expect.any(Object)
+      );
+    });
+
+    it('rechaza (400) si la reserva no está En Curso', async () => {
+      const req = mockReq({ params: { id: 'r_1' }, body: {} });
+      const res = mockRes();
+      Reserva.findOneAndUpdate.mockResolvedValue(null); // claim no matchea
+      Reserva.exists.mockResolvedValue({ _id: 'r_1' }); // pero existe
+
+      await finalizarReserva(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(devolverYRegistrar).not.toHaveBeenCalled();
+    });
+
+    it('devuelve 404 si la reserva no existe', async () => {
+      const req = mockReq({ params: { id: 'r_x' }, body: {} });
+      const res = mockRes();
+      Reserva.findOneAndUpdate.mockResolvedValue(null);
+      Reserva.exists.mockResolvedValue(null);
+
+      await finalizarReserva(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
     });
   });
 });

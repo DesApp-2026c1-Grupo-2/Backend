@@ -235,17 +235,19 @@ describe('registrarDescarteService', () => {
     expect(mockSession.abortTransaction).not.toHaveBeenCalled();
   });
 
-  it('consumible: NO toca el stock del lote (ya se descontó al ejecutarse)', async () => {
+  it('consumible: rechaza el descarte y aborta (se reporta por consumo, no por descarte)', async () => {
     setupComun({ esConsumible: true });
     const usuario = { id: 'admin_1', rol: 'ADMIN' };
     const data = { pedidoId: 'pedido_1', tipo: 'reactivo', itemId: 'item_1', cantidad: 2, motivo: 'derrame' };
 
-    await registrarDescarteService(data, usuario);
+    await expect(registrarDescarteService(data, usuario))
+      .rejects
+      .toThrow('Solo se pueden registrar descartes de ítems reutilizables. Los consumibles se reportan mediante su consumo al finalizar el pedido.');
 
     expect(Lote.updateOne).not.toHaveBeenCalled();
-    // Consumible: no cambia stock físico → no genera movimiento de historial.
     expect(registrarMovimiento).not.toHaveBeenCalled();
-    expect(mockSession.commitTransaction).toHaveBeenCalled();
+    expect(mockSession.abortTransaction).toHaveBeenCalled();
+    expect(mockSession.commitTransaction).not.toHaveBeenCalled();
   });
 
   it('reutilizable con stock físico insuficiente (matchedCount 0): lanza error y aborta', async () => {

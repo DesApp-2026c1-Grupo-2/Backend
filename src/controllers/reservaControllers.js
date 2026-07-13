@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Reserva from "../models/reserva.model.js";
 import Pedido from "../models/pedido.model.js";
 import { soportaTransacciones } from "../services/aprobacionReserva.js";
-import { devolverYRegistrar, aplicarDevolucionesFinalizacion } from "../services/devolucionReserva.js";
+import { devolverYRegistrar, aplicarDevolucionesFinalizacion, validarConsumosRequeridos } from "../services/devolucionReserva.js";
 
 // Controlador para listar reservas activas filtradas por un laboratorio específico
 const getReservasActivasPorLaboratorio = async (req, res) => {
@@ -164,6 +164,14 @@ const finalizarReserva = async (req, res) => {
     const { id } = req.params;
     const { consumos = [] } = req.body ?? {};
 
+    // Exigir el consumo reportado de todo consumible con stock ya descontado,
+    // antes del claim. Si la reserva no está En Curso, los chequeos de abajo
+    // devuelven 400/404 igual.
+    const reservaAValidar = await Reserva.findOne({ _id: id, estado: "En Curso" });
+    if (reservaAValidar) {
+      await validarConsumosRequeridos(reservaAValidar, consumos);
+    }
+
     // Claim atómico En Curso → Finalizada + devoluciones, en transacción si se
     // soporta (así no compite con el cron ni deja stock a medio devolver).
     const runFinalizar = async (session) => {
@@ -211,7 +219,7 @@ const finalizarReserva = async (req, res) => {
     return res.json({ message: "Reserva finalizada exitosamente", reserva });
   } catch (error) {
     console.error("Error en finalizarReserva:", error);
-    return res.status(500).json({ error: error.message });
+    return res.status(error.status || 500).json({ error: error.message });
   }
 };
 

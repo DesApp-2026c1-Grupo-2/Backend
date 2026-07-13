@@ -11,6 +11,7 @@ const createQueryMock = (resolvedValue) => {
 vi.mock('../../../models/reserva.model.js', () => ({
   default: {
     find: vi.fn(),
+    findOne: vi.fn(),
     findById: vi.fn(),
     findOneAndUpdate: vi.fn(),
     exists: vi.fn(),
@@ -35,12 +36,13 @@ vi.mock('../../../services/aprobacionReserva.js', () => ({
 vi.mock('../../../services/devolucionReserva.js', () => ({
   devolverYRegistrar: vi.fn().mockResolvedValue([]),
   aplicarDevolucionesFinalizacion: vi.fn(),
+  validarConsumosRequeridos: vi.fn(),
 }));
 
 import Reserva from '../../../models/reserva.model.js';
 import Pedido from '../../../models/pedido.model.js';
 import Item from '../../../models/item.model.js';
-import { devolverYRegistrar, aplicarDevolucionesFinalizacion } from '../../../services/devolucionReserva.js';
+import { devolverYRegistrar, aplicarDevolucionesFinalizacion, validarConsumosRequeridos } from '../../../services/devolucionReserva.js';
 import {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
@@ -315,6 +317,26 @@ describe('reservaControllers', () => {
       await finalizarReserva(req, res);
 
       expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    it('rechaza (400) si falta el consumo de un consumible descontado', async () => {
+      const req = mockReq({ params: { id: 'r_1' }, usuario: { id: 'u1' }, body: {} });
+      const res = mockRes();
+      // Hay una reserva En Curso con un consumible que exige consumo.
+      Reserva.findOne.mockResolvedValue({
+        _id: 'r_1',
+        materialesReservados: [{ itemId: 'item_1', consumoEjecutado: true }],
+      });
+      validarConsumosRequeridos.mockRejectedValue(
+        Object.assign(new Error('falta consumo'), { status: 400 })
+      );
+
+      await finalizarReserva(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      // No debe reclamar ni devolver nada.
+      expect(Reserva.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(aplicarDevolucionesFinalizacion).not.toHaveBeenCalled();
     });
   });
 });

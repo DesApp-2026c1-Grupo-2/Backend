@@ -15,7 +15,7 @@ import {
 import { validarAnticipacionPedido } from "./pedidoValidaciones.js";
 import { registrarHistorial } from "./pedidoHistorial.js";
 import { registrarDescarteService } from "./descarte.service.js";
-import { aplicarDevolucionesFinalizacion } from "./devolucionReserva.js";
+import { aplicarDevolucionesFinalizacion, validarConsumosRequeridos } from "./devolucionReserva.js";
 
 // ─── Populate estándar reutilizable ──────────────────────────────────────────
 const POPULATE_PEDIDO = [
@@ -377,6 +377,13 @@ export const finalizarPedidoService = async (pedidoId, body, usuario) => {
       new Error("El pedido debe estar en estado 'Aceptado' para poder finalizarse."),
       { status: 400 }
     );
+  }
+
+  // Exigir el consumo reportado de todo consumible cuyo stock ya salió físicamente,
+  // ANTES de tocar descartes/stock. Si falta, aborta con 400 sin efectos colaterales.
+  const reservaEnCurso = await Reserva.findOne({ pedidoId: pedido._id, estado: "En Curso" });
+  if (reservaEnCurso) {
+    await validarConsumosRequeridos(reservaEnCurso, consumos);
   }
 
   const detalleProblemas = [...(pedido.detalleProblemas || [])];

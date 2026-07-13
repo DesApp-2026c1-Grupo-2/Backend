@@ -92,6 +92,9 @@ export const seedReservas = async () => {
           materialesReservados.push({
             itemId: r.recursoId,
             cantidadTotal: r.cantidad,
+            // `consumir` refleja si el descuento físico ya se aplicó (§7). Sin él,
+            // lotesUsados es solo un puntero FIFO que no debe devolverse al finalizar.
+            consumoEjecutado: consumir,
             lotesUsados,
           });
         }

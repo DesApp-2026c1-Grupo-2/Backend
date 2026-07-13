@@ -18,13 +18,16 @@ vi.mock('../../../services/movimientoStock.service.js', () => ({
 import Lote from '../../../models/lote.model.js';
 import Item from '../../../models/item.model.js';
 import { registrarMovimiento } from '../../../services/movimientoStock.service.js';
-import { aplicarDevolucionesFinalizacion } from '../../../services/devolucionReserva.js';
+import {
+  aplicarDevolucionesFinalizacion,
+  validarConsumosRequeridos,
+} from '../../../services/devolucionReserva.js';
 
-// Item.findById(id).select('esConsumible').session(session) → item indicado.
-const mockItem = (esConsumible) =>
+// Item.findById(id).select(...).session(session) → item indicado.
+const mockItem = (esConsumible, nombre = 'Item') =>
   Item.findById.mockReturnValue({
     select: vi.fn().mockReturnValue({
-      session: vi.fn().mockResolvedValue({ esConsumible }),
+      session: vi.fn().mockResolvedValue({ esConsumible, nombre }),
     }),
   });
 
@@ -39,7 +42,7 @@ describe('aplicarDevolucionesFinalizacion', () => {
 
   it('consumible parcialmente usado: devuelve el sobrante (reservado − consumido) y setea cantidadConsumidaReal', async () => {
     mockItem(true); // consumible
-    const material = { itemId: 'item_1', lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
+    const material = { itemId: 'item_1', consumoEjecutado: true, lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
     const reserva = reservaCon(material);
 
     await aplicarDevolucionesFinalizacion(reserva, {
@@ -60,9 +63,9 @@ describe('aplicarDevolucionesFinalizacion', () => {
     expect(material.lotesUsados).toEqual([{ loteId: 'lote_1', cantidad: 7 }]);
   });
 
-  it('consumible sin reporte (default): consumo total, no devuelve nada', async () => {
+  it('consumible sin reporte (default interno): consumo total, no devuelve nada', async () => {
     mockItem(true); // consumible
-    const material = { itemId: 'item_1', lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
+    const material = { itemId: 'item_1', consumoEjecutado: true, lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
     const reserva = reservaCon(material);
 
     await aplicarDevolucionesFinalizacion(reserva, { consumos: [], usuarioId: 'u1' });
@@ -75,7 +78,7 @@ describe('aplicarDevolucionesFinalizacion', () => {
 
   it('reutilizable: devuelve el 100% de lo decrementado e ignora consumos', async () => {
     mockItem(false); // reutilizable
-    const material = { itemId: 'item_2', lotesUsados: [{ loteId: 'lote_2', cantidad: 4 }] };
+    const material = { itemId: 'item_2', consumoEjecutado: true, lotesUsados: [{ loteId: 'lote_2', cantidad: 4 }] };
     const reserva = reservaCon(material);
 
     await aplicarDevolucionesFinalizacion(reserva, {
@@ -100,6 +103,7 @@ describe('aplicarDevolucionesFinalizacion', () => {
     mockItem(true); // consumible
     const material = {
       itemId: 'item_1',
+      consumoEjecutado: true,
       lotesUsados: [{ loteId: 'lote_1', cantidad: 5 }, { loteId: 'lote_2', cantidad: 5 }],
     };
     const reserva = reservaCon(material);
@@ -119,9 +123,26 @@ describe('aplicarDevolucionesFinalizacion', () => {
     expect(material.lotesUsados).toEqual([{ loteId: 'lote_1', cantidad: 3 }]);
   });
 
-  it('material sin decremento (lotesUsados vacío) se saltea sin registrar movimiento', async () => {
+  it('consumoEjecutado=false: NO devuelve nada (evita stock fantasma) y marca consumo 0', async () => {
+    // lotesUsados es un puntero FIFO de la aprobación que nunca salió del inventario.
+    const material = { itemId: 'item_1', consumoEjecutado: false, lotesUsados: [{ loteId: 'lote_1', cantidad: 1000 }] };
+    const reserva = reservaCon(material);
+
+    await aplicarDevolucionesFinalizacion(reserva, {
+      consumos: [{ itemId: 'item_1', cantidadConsumida: 500 }],
+      usuarioId: 'u1',
+    });
+
+    // Sin descuento físico previo: no se repone stock ni se registra movimiento.
+    expect(Lote.updateOne).not.toHaveBeenCalled();
+    expect(registrarMovimiento).not.toHaveBeenCalled();
+    expect(Item.findById).not.toHaveBeenCalled();
+    expect(material.cantidadConsumidaReal).toBe(0);
+  });
+
+  it('material con consumoEjecutado pero lotesUsados vacío se saltea sin registrar movimiento', async () => {
     mockItem(true);
-    const material = { itemId: 'item_1', lotesUsados: [] };
+    const material = { itemId: 'item_1', consumoEjecutado: true, lotesUsados: [] };
     const reserva = reservaCon(material);
 
     await aplicarDevolucionesFinalizacion(reserva, { consumos: [], usuarioId: 'u1' });
@@ -129,5 +150,41 @@ describe('aplicarDevolucionesFinalizacion', () => {
     expect(Lote.updateOne).not.toHaveBeenCalled();
     expect(registrarMovimiento).not.toHaveBeenCalled();
     expect(material.cantidadConsumidaReal).toBeUndefined();
+  });
+});
+
+describe('validarConsumosRequeridos', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('lanza 400 si falta el consumo de un consumible ya descontado', async () => {
+    mockItem(true, 'Agua Destilada'); // consumible
+    const reserva = reservaCon({ itemId: 'item_1', consumoEjecutado: true, lotesUsados: [{ loteId: 'l', cantidad: 1000 }] });
+
+    await expect(validarConsumosRequeridos(reserva, [])).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('pasa si el consumible reporta su consumo (incluido 0)', async () => {
+    mockItem(true, 'Agua Destilada');
+    const reserva = reservaCon({ itemId: 'item_1', consumoEjecutado: true, lotesUsados: [{ loteId: 'l', cantidad: 1000 }] });
+
+    await expect(
+      validarConsumosRequeridos(reserva, [{ itemId: 'item_1', cantidadConsumida: 0 }])
+    ).resolves.toBeUndefined();
+  });
+
+  it('no exige consumo a reutilizables', async () => {
+    mockItem(false, 'Vaso'); // reutilizable
+    const reserva = reservaCon({ itemId: 'item_2', consumoEjecutado: true, lotesUsados: [{ loteId: 'l', cantidad: 4 }] });
+
+    await expect(validarConsumosRequeridos(reserva, [])).resolves.toBeUndefined();
+  });
+
+  it('no exige consumo a materiales sin descuento físico (consumoEjecutado=false)', async () => {
+    const reserva = reservaCon({ itemId: 'item_1', consumoEjecutado: false, lotesUsados: [{ loteId: 'l', cantidad: 1000 }] });
+
+    await expect(validarConsumosRequeridos(reserva, [])).resolves.toBeUndefined();
+    expect(Item.findById).not.toHaveBeenCalled();
   });
 });

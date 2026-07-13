@@ -34,12 +34,13 @@ vi.mock('../../../services/aprobacionReserva.js', () => ({
 // (su lógica de $inc + DEVOLUCION se prueba en devolucionReserva/movimientoStock).
 vi.mock('../../../services/devolucionReserva.js', () => ({
   devolverYRegistrar: vi.fn().mockResolvedValue([]),
+  aplicarDevolucionesFinalizacion: vi.fn(),
 }));
 
 import Reserva from '../../../models/reserva.model.js';
 import Pedido from '../../../models/pedido.model.js';
 import Item from '../../../models/item.model.js';
-import { devolverYRegistrar } from '../../../services/devolucionReserva.js';
+import { devolverYRegistrar, aplicarDevolucionesFinalizacion } from '../../../services/devolucionReserva.js';
 import {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
@@ -184,7 +185,11 @@ describe('reservaControllers', () => {
   });
 
   describe('finalizarReserva', () => {
-    it('devuelve el sobrante de un consumible parcialmente usado (reservado − consumido) y setea cantidadConsumidaReal (200)', async () => {
+    // La lógica de cuánto devuelve cada material (reutilizable 100%, sobrante de
+    // consumible, ajuste de lotesUsados) vive ahora en aplicarDevolucionesFinalizacion
+    // y se prueba en devolucionReserva.test.js. Acá verificamos la DELEGACIÓN:
+    // claim atómico + llamada al helper con los consumos/usuario + save + 200.
+    it('hace el claim En Curso → Finalizada y delega la devolución con los consumos y el usuario (200)', async () => {
       const req = mockReq({
         params: { id: 'r_1' },
         usuario: { id: 'u1' },
@@ -192,14 +197,12 @@ describe('reservaControllers', () => {
       });
       const res = mockRes();
 
-      const material = { itemId: 'item_1', lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
       const reserva = {
         _id: 'r_1', estado: 'Finalizada', laboratorioId: 'lab_1',
-        materialesReservados: [material],
+        materialesReservados: [{ itemId: 'item_1', lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] }],
         save: vi.fn().mockResolvedValue(true),
       };
       Reserva.findOneAndUpdate.mockResolvedValue(reserva); // claim OK
-      mockItem(true); // consumible
 
       await finalizarReserva(req, res);
 
@@ -209,52 +212,36 @@ describe('reservaControllers', () => {
         { $set: { estado: 'Finalizada' } },
         { new: true }
       );
-      // Devuelve el sobrante (10 − 7 = 3).
-      expect(devolverYRegistrar).toHaveBeenCalledWith(
-        reserva, material, 3, expect.objectContaining({ usuarioId: 'u1' })
+      // Delega la devolución en el servicio compartido con los consumos y el usuario.
+      expect(aplicarDevolucionesFinalizacion).toHaveBeenCalledWith(
+        reserva,
+        expect.objectContaining({
+          consumos: [{ itemId: 'item_1', cantidadConsumida: 7 }],
+          usuarioId: 'u1',
+        })
       );
-      expect(material.cantidadConsumidaReal).toBe(7);
       expect(reserva.save).toHaveBeenCalled();
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ reserva }));
     });
 
-    it('NO devuelve nada si el consumible se consumió por completo (default = todo) (200)', async () => {
+    it('sin body delega con consumos vacío (default = consumo total) (200)', async () => {
       const req = mockReq({ params: { id: 'r_1' }, usuario: { id: 'u1' }, body: {} });
       const res = mockRes();
 
-      const material = { itemId: 'item_1', lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
       const reserva = {
         _id: 'r_1', estado: 'Finalizada', laboratorioId: 'lab_1',
-        materialesReservados: [material],
+        materialesReservados: [{ itemId: 'item_1', lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] }],
         save: vi.fn().mockResolvedValue(true),
       };
       Reserva.findOneAndUpdate.mockResolvedValue(reserva);
-      mockItem(true); // consumible
 
       await finalizarReserva(req, res);
 
-      expect(devolverYRegistrar).not.toHaveBeenCalled();
-      expect(material.cantidadConsumidaReal).toBe(10); // consumió todo
-    });
-
-    it('devuelve el 100% de un material reutilizable al finalizar (200)', async () => {
-      const req = mockReq({ params: { id: 'r_1' }, usuario: { id: 'u1' }, body: {} });
-      const res = mockRes();
-
-      const material = { itemId: 'item_2', lotesUsados: [{ loteId: 'lote_2', cantidad: 4 }] };
-      const reserva = {
-        _id: 'r_1', estado: 'Finalizada', laboratorioId: 'lab_1',
-        materialesReservados: [material],
-        save: vi.fn().mockResolvedValue(true),
-      };
-      Reserva.findOneAndUpdate.mockResolvedValue(reserva);
-      mockItem(false); // reutilizable
-
-      await finalizarReserva(req, res);
-
-      expect(devolverYRegistrar).toHaveBeenCalledWith(
-        reserva, material, 4, expect.any(Object)
+      expect(aplicarDevolucionesFinalizacion).toHaveBeenCalledWith(
+        reserva,
+        expect.objectContaining({ consumos: [], usuarioId: 'u1' })
       );
+      expect(reserva.save).toHaveBeenCalled();
     });
 
     it('rechaza (400) si la reserva no está En Curso', async () => {

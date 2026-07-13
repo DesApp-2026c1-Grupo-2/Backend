@@ -1,9 +1,8 @@
 import mongoose from "mongoose";
 import Reserva from "../models/reserva.model.js";
 import Pedido from "../models/pedido.model.js";
-import Item from "../models/item.model.js";
 import { soportaTransacciones } from "../services/aprobacionReserva.js";
-import { devolverYRegistrar } from "../services/devolucionReserva.js";
+import { devolverYRegistrar, aplicarDevolucionesFinalizacion } from "../services/devolucionReserva.js";
 
 // Controlador para listar reservas activas filtradas por un laboratorio específico
 const getReservasActivasPorLaboratorio = async (req, res) => {
@@ -128,9 +127,6 @@ const finalizarReserva = async (req, res) => {
   try {
     const { id } = req.params;
     const { consumos = [] } = req.body ?? {};
-    const consumoPorItem = new Map(
-      consumos.map((c) => [String(c.itemId), c.cantidadConsumida])
-    );
 
     // Claim atómico En Curso → Finalizada + devoluciones, en transacción si se
     // soporta (así no compite con el cron ni deja stock a medio devolver).
@@ -143,40 +139,11 @@ const finalizarReserva = async (req, res) => {
       );
       if (!reserva) return null; // no existe, o no está En Curso (ya la tomó el cron)
 
-      for (const material of reserva.materialesReservados) {
-        const item = await Item.findById(material.itemId)
-          .select("esConsumible")
-          .session(session ?? null);
-        const decrementado = (material.lotesUsados ?? []).reduce((acc, l) => acc + l.cantidad, 0);
-        if (decrementado <= 0) continue;
-
-        const esReutilizable = item && item.esConsumible === false;
-        let aDevolver;
-        if (esReutilizable) {
-          aDevolver = decrementado; // el reutilizable vuelve completo
-        } else {
-          const reportado = consumoPorItem.get(String(material.itemId));
-          const consumido = Math.min(reportado ?? decrementado, decrementado);
-          material.cantidadConsumidaReal = consumido;
-          aDevolver = decrementado - consumido;
-        }
-        if (aDevolver <= 0) continue;
-
-        const repuesto = await devolverYRegistrar(reserva, material, aDevolver, {
-          session,
-          usuarioId: req.usuario?.id,
-          observacion: esReutilizable
-            ? "Devolución de material reutilizable al finalizar la reserva"
-            : "Devolución de consumible no utilizado al finalizar la reserva",
-        });
-        // Ajustar lotesUsados a lo realmente consumido (mismo orden inverso al FIFO
-        // que usó la devolución), para que la traza refleje el consumo real.
-        for (const r of repuesto) {
-          const lu = material.lotesUsados.find((l) => String(l.loteId) === String(r.loteId));
-          if (lu) lu.cantidad -= r.cantidad;
-        }
-        material.lotesUsados = material.lotesUsados.filter((l) => l.cantidad > 0);
-      }
+      await aplicarDevolucionesFinalizacion(reserva, {
+        consumos,
+        usuarioId: req.usuario?.id,
+        session,
+      });
 
       await reserva.save(session ? { session } : undefined);
       return reserva;

@@ -1,4 +1,5 @@
 import Lote from "../models/lote.model.js";
+import Item from "../models/item.model.js";
 import { registrarMovimiento, stockFisicoItem } from "./movimientoStock.service.js";
 
 /*
@@ -77,4 +78,63 @@ export const devolverYRegistrar = async (
 
   await registrarMovimiento(datos, session);
   return repuesto;
+};
+
+/*
+ * Aplica las devoluciones de stock al FINALIZAR una reserva (manual, sea vía
+ * reservas/finalizar o pedidos/finalizar). Por cada material:
+ *   - reutilizable → vuelve el 100% de lo decrementado al iniciar,
+ *   - consumible   → vuelve el sobrante (decrementado − consumido reportado).
+ * Registra el MovimientoStock DEVOLUCION por cada reposición y ajusta
+ * `lotesUsados`/`cantidadConsumidaReal` para que la traza refleje el consumo real.
+ *
+ * MUTA `reserva.materialesReservados` en memoria; NO hace el claim de estado ni el
+ * `save` (eso queda en el caller, que maneja su propia transacción/guarda).
+ *
+ * `consumos`: [{ itemId, cantidadConsumida }] — items omitidos se dan por
+ * consumidos en su totalidad. El consumido se clampa a lo decrementado (no se
+ * puede consumir más de lo que salió).
+ */
+export const aplicarDevolucionesFinalizacion = async (
+  reserva,
+  { consumos = [], usuarioId = null, session = null } = {}
+) => {
+  const consumoPorItem = new Map(
+    consumos.map((c) => [String(c.itemId), c.cantidadConsumida])
+  );
+
+  for (const material of reserva.materialesReservados) {
+    const item = await Item.findById(material.itemId)
+      .select("esConsumible")
+      .session(session ?? null);
+    const decrementado = (material.lotesUsados ?? []).reduce((acc, l) => acc + l.cantidad, 0);
+    if (decrementado <= 0) continue;
+
+    const esReutilizable = item && item.esConsumible === false;
+    let aDevolver;
+    if (esReutilizable) {
+      aDevolver = decrementado; // el reutilizable vuelve completo
+    } else {
+      const reportado = consumoPorItem.get(String(material.itemId));
+      const consumido = Math.min(reportado ?? decrementado, decrementado);
+      material.cantidadConsumidaReal = consumido;
+      aDevolver = decrementado - consumido;
+    }
+    if (aDevolver <= 0) continue;
+
+    const repuesto = await devolverYRegistrar(reserva, material, aDevolver, {
+      session,
+      usuarioId,
+      observacion: esReutilizable
+        ? "Devolución de material reutilizable al finalizar la reserva"
+        : "Devolución de consumible no utilizado al finalizar la reserva",
+    });
+    // Ajustar lotesUsados a lo realmente consumido (mismo orden inverso al FIFO
+    // que usó la devolución), para que la traza refleje el consumo real.
+    for (const r of repuesto) {
+      const lu = material.lotesUsados.find((l) => String(l.loteId) === String(r.loteId));
+      if (lu) lu.cantidad -= r.cantidad;
+    }
+    material.lotesUsados = material.lotesUsados.filter((l) => l.cantidad > 0);
+  }
 };

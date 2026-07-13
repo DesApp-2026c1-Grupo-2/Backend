@@ -8,7 +8,6 @@ describe('Lote Model Validations', () => {
     const lote = new Lote({
       itemId: new mongoose.Types.ObjectId(),
       cantidadDisponible: 100,
-      ubicacion: 'Estante A1',
       estado: 'disponible'
     });
 
@@ -23,14 +22,12 @@ describe('Lote Model Validations', () => {
     expect(err).toBeDefined();
     expect(err.errors.itemId).toBeDefined();
     expect(err.errors.cantidadDisponible).toBeDefined();
-    expect(err.errors.ubicacion).toBeDefined();
   });
 
   it('debería retornar error si cantidadDisponible es menor a 0 (min validator)', () => {
     const lote = new Lote({
       itemId: new mongoose.Types.ObjectId(),
-      cantidadDisponible: -5,
-      ubicacion: 'Estante A1'
+      cantidadDisponible: -5
     });
 
     const err = lote.validateSync();

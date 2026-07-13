@@ -54,12 +54,11 @@ const createLote = async (req, res) => {
 // El item se trae con nombre/código/tipo, igual que el populate anterior.
 const getLotes = async (req, res) => {
   try {
-    const { itemId, estado, ubicacion } = req.query;
+    const { itemId, estado } = req.query;
     const filtros = { activo: { $ne: false } };
 
     if (itemId) filtros.itemId = new mongoose.Types.ObjectId(itemId);
     if (estado) filtros.estado = estado;
-    if (ubicacion) filtros.ubicacion = ubicacion;
 
     // FEFO: lo que vence primero, arriba. `_sinVenc` empuja los lotes sin
     // fechaVencimiento al FINAL (Mongo, en orden ascendente, pondría los null
@@ -196,7 +195,7 @@ const updateLote = async (req, res) => {
 // con esa porción. Ambas operaciones deben ser atómicas para no perder/duplicar stock,
 // por eso se envuelven en una transacción si la conexión la soporta (mismo patrón que
 // aprobacionReserva/cronReservas); en standalone corre degradado sin sesión. El lote
-// destino hereda itemId/ubicacion/fechaCreacion/fechaVencimiento para no alterar el
+// destino hereda itemId/fechaCreacion/fechaVencimiento para no alterar el
 // orden FEFO/FIFO del stock. Devuelve el lote destino creado.
 const moverLoteParcial = async (lote, cantidad, destino) => {
   const ejecutar = async (session) => {
@@ -210,7 +209,6 @@ const moverLoteParcial = async (lote, cantidad, destino) => {
       [{
         itemId: lote.itemId,
         cantidadDisponible: cantidad,
-        ubicacion: lote.ubicacion,
         laboratorioId: destino,
         estado: "disponible",
         fechaCreacion: lote.fechaCreacion,

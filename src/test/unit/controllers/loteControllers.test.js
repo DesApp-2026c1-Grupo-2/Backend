@@ -61,7 +61,7 @@ describe('loteControllers', () => {
 
   describe('createLote', () => {
     it('debe crear un nuevo lote (201) y registrar un movimiento COMPRA', async () => {
-      const req = mockReq({ body: { itemId: '1', cantidadDisponible: 10, ubicacion: 'A1' } });
+      const req = mockReq({ body: { itemId: '1', cantidadDisponible: 10 } });
       const res = mockRes();
       vi.spyOn(Lote.prototype, 'save').mockResolvedValueOnce({
         _id: 'L1', itemId: '1', cantidadDisponible: 10, estado: 'disponible'
@@ -95,7 +95,7 @@ describe('loteControllers', () => {
   describe('getLotes', () => {
     it('devuelve un ARRAY (FEFO) cuando no se pagina (200)', async () => {
       const itemId = '507f1f77bcf86cd799439011';
-      const req = mockReq({ query: { itemId, estado: 'disponible', ubicacion: 'Estante 1' } });
+      const req = mockReq({ query: { itemId, estado: 'disponible' } });
       const res = mockRes();
       const mockData = [{ id: 'L1', itemId: { id: itemId, nombre: 'Tubo' } }];
 
@@ -108,7 +108,6 @@ describe('loteControllers', () => {
       expect(pipeline[0].$match).toMatchObject({
         activo: { $ne: false },
         estado: 'disponible',
-        ubicacion: 'Estante 1',
       });
       expect(String(pipeline[0].$match.itemId)).toBe(itemId);
       // Sin page/limit no debe haber $skip/$limit en el pipeline.
@@ -225,7 +224,7 @@ describe('loteControllers', () => {
     });
 
     it('no registra movimiento si el agregado no cambió (delta 0)', async () => {
-      const req = mockReq({ params: { id: 'L1' }, body: { ubicacion: 'Nuevo estante' } });
+      const req = mockReq({ params: { id: 'L1' }, body: { fechaVencimiento: '2030-01-01' } });
       const res = mockRes();
       Lote.findOne.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'disponible', cantidadDisponible: 10 }));
       Lote.findOneAndUpdate.mockReturnValue(createQueryMock({ _id: 'L1', itemId: 'i1', estado: 'disponible', cantidadDisponible: 10 }));
@@ -336,7 +335,7 @@ describe('loteControllers', () => {
         // Lote origen en depósito con 100 disponibles.
         Lote.findOne.mockResolvedValueOnce({
           _id: 'L1', itemId: 'i1', laboratorioId: null, estado: 'disponible',
-          cantidadDisponible: 100, ubicacion: 'Armario 1', fechaCreacion: new Date(0),
+          cantidadDisponible: 100, fechaCreacion: new Date(0),
           fechaVencimiento: null, save,
         });
         Lote.updateOne.mockResolvedValueOnce({ acknowledged: true });
@@ -360,7 +359,6 @@ describe('loteControllers', () => {
             itemId: 'i1',
             cantidadDisponible: 30,
             laboratorioId: 'lab-destino',
-            ubicacion: 'Armario 1',
             estado: 'disponible',
           })],
           {}
@@ -453,7 +451,7 @@ describe('loteControllers', () => {
         const res = mockRes();
         Lote.findOne.mockResolvedValueOnce({
           _id: 'L1', itemId: 'i1', laboratorioId: 'lab-origen', estado: 'disponible',
-          cantidadDisponible: 100, ubicacion: 'Armario 1', fechaCreacion: new Date(0), fechaVencimiento: null,
+          cantidadDisponible: 100, fechaCreacion: new Date(0), fechaVencimiento: null,
         });
         Lote.updateOne.mockResolvedValueOnce({ acknowledged: true });
         Lote.create.mockResolvedValueOnce([{ _id: 'L2', itemId: 'i1', cantidadDisponible: 40, laboratorioId: null }]);

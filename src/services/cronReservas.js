@@ -91,6 +91,9 @@ const ejecutarConsumoFisico = async (reserva, session = null) => {
       restante -= usar;
     }
     mat.lotesUsados = lotesUsados;
+    // A partir de acá `lotesUsados` es un decremento físico REAL (no un puntero):
+    // habilita las devoluciones al finalizar (§10).
+    mat.consumoEjecutado = true;
 
     // Movimiento de historial: egreso físico al iniciar la reserva (invariante
     // nueva = anterior - egreso). `totalFisico` es el stock agregado del item
@@ -191,6 +194,9 @@ const devolverReutilizablesAlFinalizar = async (reserva) => {
     for (const mat of reserva.materialesReservados ?? []) {
       const item = await Item.findById(mat.itemId).select("esConsumible").session(session ?? null);
       if (!item || item.esConsumible !== false) continue; // solo reutilizables
+      // Sin descuento físico previo, `lotesUsados` es un puntero que nunca salió:
+      // devolverlo inyectaría stock fantasma.
+      if (mat.consumoEjecutado !== true) continue;
       const total = (mat.lotesUsados ?? []).reduce((acc, l) => acc + l.cantidad, 0);
       if (total <= 0) continue;
       await devolverYRegistrar(reserva, mat, total, {

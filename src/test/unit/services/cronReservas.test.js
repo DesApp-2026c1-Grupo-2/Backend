@@ -226,7 +226,7 @@ describe('finalizarReservasVencidas (§9)', () => {
     Reserva.findOneAndUpdate.mockResolvedValue({
       _id: 'r1',
       laboratorioId: 'lab1',
-      materialesReservados: [{ itemId: 'i1', cantidadTotal: 2, lotesUsados: [{ loteId: 'l1', cantidad: 2 }] }],
+      materialesReservados: [{ itemId: 'i1', cantidadTotal: 2, consumoEjecutado: true, lotesUsados: [{ loteId: 'l1', cantidad: 2 }] }],
     });
     mockItemSelect(false); // reutilizable
     stockFisicoItem.mockResolvedValue(50);

@@ -95,6 +95,92 @@ export const devolverYRegistrar = async (
  * consumidos en su totalidad. El consumido se clampa a lo decrementado (no se
  * puede consumir más de lo que salió).
  */
+/*
+ * Regla de negocio: al finalizar manualmente una reserva, TODO consumible cuyo
+ * descuento físico ya se ejecutó (§7) debe reportar su consumo real. No se admite
+ * el default "se consumió todo": el operador tiene que indicar cuánto se usó de
+ * cada consumible (0 si no se usó nada, y así vuelve el 100% del sobrante).
+ *
+ * Los reutilizables NO requieren consumo (vuelven completos). Los materiales sin
+ * `consumoEjecutado` tampoco (no salió stock, no hay nada que reportar).
+ *
+ * Lanza un Error con `status: 400` si falta el consumo de algún consumible.
+ */
+export const validarConsumosRequeridos = async (
+  reserva,
+  consumos = [],
+  { session = null } = {}
+) => {
+  const reportados = new Set(
+    consumos
+      .filter((c) => typeof c.cantidadConsumida === "number")
+      .map((c) => String(c.itemId))
+  );
+
+  const faltantes = [];
+  for (const material of reserva.materialesReservados ?? []) {
+    if (material.consumoEjecutado !== true) continue;
+    const item = await Item.findById(material.itemId)
+      .select("esConsumible nombre")
+      .session(session ?? null);
+    if (!item || item.esConsumible !== true) continue; // solo consumibles
+    if (!reportados.has(String(material.itemId))) {
+      faltantes.push(item.nombre || String(material.itemId));
+    }
+  }
+
+  if (faltantes.length > 0) {
+    throw Object.assign(
+      new Error(
+        `Debe indicar la cantidad consumida de los siguientes consumibles para finalizar: ${faltantes.join(", ")}.`
+      ),
+      { status: 400 }
+    );
+  }
+};
+
+/*
+ * Regla de negocio: el descarte solo aplica a ítems reutilizables
+ * (esConsumible === false). Un consumible no se descarta —o se consume (se reporta
+ * vía `consumos`) o se devuelve sin consumir—, así que rechazamos de entrada
+ * cualquier descarte que apunte a un consumible.
+ *
+ * Se ejecuta ANTES del loop que registra descartes en finalizarPedidoService
+ * (fail-fast): registrarDescarteService commitea su propia transacción por
+ * descarte, por lo que validar acá evita dejar descartes parciales persistidos.
+ *
+ * `descartes`: [{ tipo, itemId, ... }] — los de tipo "equipo" (desperfectos) se
+ * ignoran, no son descartes de stock. Lanza Error con `status: 400` listando los
+ * consumibles encontrados.
+ */
+export const validarDescartesReutilizables = async (descartes = [], { session = null } = {}) => {
+  const itemIds = [
+    ...new Set(
+      descartes
+        .filter((d) => d?.tipo !== "equipo" && d?.itemId)
+        .map((d) => String(d.itemId))
+    ),
+  ];
+  if (itemIds.length === 0) return;
+
+  const items = await Item.find({ _id: { $in: itemIds } })
+    .select("esConsumible nombre")
+    .session(session ?? null);
+
+  const consumibles = items
+    .filter((item) => item.esConsumible !== false)
+    .map((item) => item.nombre || String(item._id));
+
+  if (consumibles.length > 0) {
+    throw Object.assign(
+      new Error(
+        `Solo se pueden descartar ítems reutilizables. Los siguientes son consumibles y deben reportarse como consumo: ${consumibles.join(", ")}.`
+      ),
+      { status: 400 }
+    );
+  }
+};
+
 export const aplicarDevolucionesFinalizacion = async (
   reserva,
   { consumos = [], usuarioId = null, session = null } = {}
@@ -104,6 +190,14 @@ export const aplicarDevolucionesFinalizacion = async (
   );
 
   for (const material of reserva.materialesReservados) {
+    // Sin descuento físico previo (§7), `lotesUsados` es solo un puntero FIFO que
+    // NUNCA salió del inventario: devolverlo inyectaría stock fantasma. No hay nada
+    // que reponer y el consumo real es 0.
+    if (material.consumoEjecutado !== true) {
+      material.cantidadConsumidaReal = 0;
+      continue;
+    }
+
     const item = await Item.findById(material.itemId)
       .select("esConsumible")
       .session(session ?? null);

@@ -29,6 +29,12 @@ const reservaSchema = new mongoose.Schema({
     // (PATCH /reservas/:id/finalizar). Ausente = se consumió todo lo reservado
     // (comportamiento por defecto del cron). Para reutilizables no aplica (vuelven).
     cantidadConsumidaReal: { type: Number },
+    // ¿Se ejecutó el descuento físico de este material (§7)? Se pone en true
+    // recién cuando `ejecutarConsumoFisico` (cron) decrementa cantidadDisponible.
+    // Mientras sea false, `lotesUsados` es solo un PUNTERO FIFO (aprobación) que
+    // NUNCA salió del inventario: las devoluciones al finalizar deben ignorarlo
+    // para no inyectar stock fantasma.
+    consumoEjecutado: { type: Boolean, default: false },
     lotesUsados: [{
       loteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lote', required: true },
       cantidad: { type: Number, required: true }

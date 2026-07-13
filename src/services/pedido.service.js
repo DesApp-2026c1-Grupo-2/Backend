@@ -15,7 +15,7 @@ import {
 import { validarAnticipacionPedido } from "./pedidoValidaciones.js";
 import { registrarHistorial } from "./pedidoHistorial.js";
 import { registrarDescarteService } from "./descarte.service.js";
-import { aplicarDevolucionesFinalizacion } from "./devolucionReserva.js";
+import { aplicarDevolucionesFinalizacion, validarConsumosRequeridos, validarDescartesReutilizables } from "./devolucionReserva.js";
 
 // ─── Populate estándar reutilizable ──────────────────────────────────────────
 const POPULATE_PEDIDO = [
@@ -23,7 +23,7 @@ const POPULATE_PEDIDO = [
   { path: "laboratorio", select: "nombre tipo" },
   {
     path: "recursos.recursoId",
-    select: "nombre tipo codigo esFijo estado laboratorio",
+    select: "nombre tipo codigo esFijo estado esConsumible laboratorio",
   },
   { path: "comentarios.usuario", select: "nombre apellido rol" },
 ];
@@ -44,7 +44,7 @@ export const getPedidosService = async (usuario) => {
   const pedidos = await Pedido.find(filtro)
     .populate("docente", "nombre apellido email")
     .populate("laboratorio", "nombre tipo")
-    .populate({ path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado laboratorio" })
+    .populate({ path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado esConsumible laboratorio" })
     .populate({ path: "comentarios.usuario", select: "nombre apellido rol" })
     .sort({ fechaHora: -1 });
 
@@ -73,7 +73,7 @@ export const getPedidoByIdService = async (pedidoId, usuario) => {
   const pedido = await Pedido.findById(pedidoId)
     .populate("docente", "nombre apellido email")
     .populate("laboratorio", "nombre tipo")
-    .populate({ path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado laboratorio" })
+    .populate({ path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado esConsumible laboratorio" })
     .populate({ path: "comentarios.usuario", select: "nombre apellido rol" })
     .populate({ path: "historial.usuario", select: "nombre apellido rol" });
 
@@ -246,7 +246,7 @@ export const updatePedidoService = async (pedidoId, body, usuario) => {
 
   await pedidoDoc.populate("docente", "nombre apellido email");
   await pedidoDoc.populate("laboratorio", "nombre tipo");
-  await pedidoDoc.populate({ path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado laboratorio" });
+  await pedidoDoc.populate({ path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado esConsumible laboratorio" });
 
   return pedidoDoc;
 };
@@ -359,7 +359,7 @@ export const aprobarPedidoService = async (pedidoId, usuario) => {
   await pedidoAprobado.populate([
     { path: "docente", select: "nombre apellido email" },
     { path: "laboratorio", select: "nombre tipo" },
-    { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado laboratorio" },
+    { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado esConsumible laboratorio" },
   ]);
 
   return { pedido: pedidoAprobado, reservaId: nuevaReserva._id };
@@ -378,6 +378,18 @@ export const finalizarPedidoService = async (pedidoId, body, usuario) => {
       { status: 400 }
     );
   }
+
+  // Exigir el consumo reportado de todo consumible cuyo stock ya salió físicamente,
+  // ANTES de tocar descartes/stock. Si falta, aborta con 400 sin efectos colaterales.
+  const reservaEnCurso = await Reserva.findOne({ pedidoId: pedido._id, estado: "En Curso" });
+  if (reservaEnCurso) {
+    await validarConsumosRequeridos(reservaEnCurso, consumos);
+  }
+
+  // Fail-fast: el descarte solo aplica a reutilizables. Validamos ANTES del loop
+  // de descartes porque registrarDescarteService commitea por descarte y no
+  // queremos dejar descartes parciales si alguno apunta a un consumible.
+  await validarDescartesReutilizables(descartes);
 
   const detalleProblemas = [...(pedido.detalleProblemas || [])];
 
@@ -495,7 +507,7 @@ export const finalizarPedidoService = async (pedidoId, body, usuario) => {
   await pedidoFinalizado.populate([
     { path: "docente", select: "nombre apellido email" },
     { path: "laboratorio", select: "nombre tipo" },
-    { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado" },
+    { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado esConsumible" },
   ]);
 
   return pedidoFinalizado;
@@ -577,7 +589,7 @@ export const updateEstadoService = async (pedidoId, body, usuario) => {
   await pedido.populate([
     { path: "docente", select: "nombre apellido email" },
     { path: "laboratorio", select: "nombre tipo" },
-    { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado laboratorio" },
+    { path: "recursos.recursoId", select: "nombre tipo codigo esFijo estado esConsumible laboratorio" },
   ]);
 
   return pedido;

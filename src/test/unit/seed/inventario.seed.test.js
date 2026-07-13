@@ -3,16 +3,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mocks de modelos ANTES de importar el seeder.
 vi.mock('../../../models/item.model.js');
 vi.mock('../../../models/lote.model.js');
+vi.mock('../../../models/laboratorio.model.js');
 vi.mock('../../../models/recetaReactivo.model.js');
 vi.mock('../../../models/produccionReactivo.model.js');
 
 import Item from '../../../models/item.model.js';
 import Lote from '../../../models/lote.model.js';
+import Laboratorio from '../../../models/laboratorio.model.js';
 import RecetaReactivo from '../../../models/recetaReactivo.model.js';
 import ProduccionReactivo from '../../../models/produccionReactivo.model.js';
 import { seedInventario } from '../../../seed/inventario.seed.js';
 
 const REUTILIZABLES = ['MAT-001', 'MAT-002', 'MAT-004'];
+
+// Laboratorios que el seed ubica físicamente (algunos lotes viven en un lab).
+const LAB1 = 'lab_general';
+const LAB2 = 'lab_quimica';
 
 describe('seedInventario', () => {
   let itemsInsertados;
@@ -36,6 +42,14 @@ describe('seedInventario', () => {
     Lote.insertMany.mockImplementation((arr) => {
       lotesInsertados = arr;
       return Promise.resolve(arr);
+    });
+
+    // Laboratorio.find({}).select('nombre') => labs usados para ubicar lotes.
+    Laboratorio.find.mockReturnValue({
+      select: vi.fn().mockResolvedValue([
+        { nombre: 'Lab 1 — General', _id: LAB1 },
+        { nombre: 'Lab 2 — Química', _id: LAB2 },
+      ]),
     });
 
     RecetaReactivo.insertMany.mockResolvedValue([]);
@@ -90,5 +104,15 @@ describe('seedInventario', () => {
   it('registra la receta y la producción del reactivo con receta', () => {
     expect(RecetaReactivo.insertMany).toHaveBeenCalledTimes(1);
     expect(ProduccionReactivo.insertMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('ubica algunos lotes en un laboratorio y el resto en el depósito (laboratorioId null)', () => {
+    // Al menos un lote vive en cada laboratorio conocido (datos de devolución).
+    expect(lotesInsertados.some((l) => l.laboratorioId === LAB1)).toBe(true);
+    expect(lotesInsertados.some((l) => l.laboratorioId === LAB2)).toBe(true);
+    // El grueso queda en el depósito.
+    expect(lotesInsertados.some((l) => l.laboratorioId === null)).toBe(true);
+    // Nunca queda undefined: siempre lab o null (depósito).
+    expect(lotesInsertados.every((l) => l.laboratorioId === null || typeof l.laboratorioId === 'string')).toBe(true);
   });
 });

@@ -11,7 +11,6 @@ export const movimientosQuerySchema = Joi.object({
     'COMPRA',
     'AJUSTE_MANUAL',
     'TRANSFERENCIA',
-    'MANTENIMIENTO',
     'BAJA'
   ).optional(),
   reservaId: Joi.string().hex().length(24).optional(),

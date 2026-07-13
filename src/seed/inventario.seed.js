@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Item from "../models/item.model.js";
 import Lote from "../models/lote.model.js";
+import Laboratorio from "../models/laboratorio.model.js";
 import RecetaReactivo from "../models/recetaReactivo.model.js";
 import ProduccionReactivo from "../models/produccionReactivo.model.js";
 
@@ -47,50 +48,60 @@ export const seedInventario = async () => {
 
     const porCodigo = Object.fromEntries(items.map((i) => [i.codigo, i]));
 
+    // Laboratorios (sembrados antes) para ubicar algunos lotes fuera del depósito y
+    // así tener datos de prueba de DEVOLUCION (lab → depósito). El resto de lotes
+    // quedan con laboratorioId null = depósito. Si el lab no existe, el lote cae al
+    // depósito (fallback null) sin romper el seed.
+    const labs = await Laboratorio.find({}).select("nombre");
+    const labPorNombre = Object.fromEntries(labs.map((l) => [l.nombre, l._id]));
+
     // 3. Lotes deterministas por ítem.
     //    - Reutilizables: sin vencimiento; el modelo temporal nunca los decrementa.
     //    - Consumibles: con vencimiento variado; incluyen un caso "próximo a vencer".
-    //    ubicacion realista por tipo de armario/heladera.
+    //    `lab` (opcional): nombre del laboratorio donde está físicamente el lote;
+    //    ausente = depósito.
     const lotesPorCodigo = {
       // Vidriería reutilizable (varios lotes por compras en distintas fechas)
       'MAT-001': [
-        { cantidadDisponible: 120, ubicacion: 'Armario 1 - Estante A', fechaCreacion: dias(-200) },
-        { cantidadDisponible: 60,  ubicacion: 'Armario 1 - Estante B', fechaCreacion: dias(-60) },
-        { cantidadDisponible: 0,   ubicacion: 'Armario 1 - Estante B', fechaCreacion: dias(-200), estado: 'descartado' }, // lote roto/dado de baja
+        { cantidadDisponible: 120, fechaCreacion: dias(-200) },
+        // Este lote vive en un laboratorio → sirve para probar la DEVOLUCION al depósito.
+        { cantidadDisponible: 60,  fechaCreacion: dias(-60), lab: 'Lab 1 — General' },
+        { cantidadDisponible: 0,   fechaCreacion: dias(-200), estado: 'descartado' }, // lote roto/dado de baja
       ],
       'MAT-002': [
-        { cantidadDisponible: 45, ubicacion: 'Armario 2 - Estante A', fechaCreacion: dias(-150) },
-        { cantidadDisponible: 30, ubicacion: 'Armario 2 - Estante B', fechaCreacion: dias(-30) },
+        { cantidadDisponible: 45, fechaCreacion: dias(-150) },
+        // También en un laboratorio (segundo caso de devolución / transferencia entre labs).
+        { cantidadDisponible: 30, fechaCreacion: dias(-30), lab: 'Lab 2 — Química' },
       ],
       'MAT-004': [
-        { cantidadDisponible: 40, ubicacion: 'Armario 2 - Estante C', fechaCreacion: dias(-120) },
+        { cantidadDisponible: 40, fechaCreacion: dias(-120) },
       ],
       // Descartable consumible
       'MAT-003': [
-        { cantidadDisponible: 200, ubicacion: 'Armario 3 - Estante A', fechaCreacion: dias(-90),  fechaVencimiento: dias(240) },
-        { cantidadDisponible: 150, ubicacion: 'Armario 3 - Estante A', fechaCreacion: dias(-30),  fechaVencimiento: dias(90) },
+        { cantidadDisponible: 200, fechaCreacion: dias(-90),  fechaVencimiento: dias(240) },
+        { cantidadDisponible: 150, fechaCreacion: dias(-30),  fechaVencimiento: dias(90) },
       ],
       // Sustancias consumibles
       'SUS-001': [
-        { cantidadDisponible: 5000, ubicacion: 'Depósito - Bidón 1', fechaCreacion: dias(-120), fechaVencimiento: dias(300) },
-        { cantidadDisponible: 3000, ubicacion: 'Depósito - Bidón 2', fechaCreacion: dias(-20),  fechaVencimiento: dias(400) },
+        { cantidadDisponible: 5000, fechaCreacion: dias(-120), fechaVencimiento: dias(300) },
+        { cantidadDisponible: 3000, fechaCreacion: dias(-20),  fechaVencimiento: dias(400) },
       ],
       'SUS-002': [
-        { cantidadDisponible: 2000, ubicacion: 'Armario 4 - Estante A', fechaCreacion: dias(-100), fechaVencimiento: dias(180) },
-        { cantidadDisponible: 1000, ubicacion: 'Armario 4 - Estante A', fechaCreacion: dias(-10),  fechaVencimiento: dias(7) }, // próximo a vencer
+        { cantidadDisponible: 2000, fechaCreacion: dias(-100), fechaVencimiento: dias(180) },
+        { cantidadDisponible: 1000, fechaCreacion: dias(-10),  fechaVencimiento: dias(7) }, // próximo a vencer
       ],
       'SUS-003': [
-        { cantidadDisponible: 5000, ubicacion: 'Depósito - Contenedor 3', fechaCreacion: dias(-80), fechaVencimiento: dias(720) },
+        { cantidadDisponible: 5000, fechaCreacion: dias(-80), fechaVencimiento: dias(720) },
       ],
       // Reactivos
       'REA-001': [
-        { cantidadDisponible: 200, ubicacion: 'Heladera 1 - Estante A', fechaCreacion: dias(-50), fechaVencimiento: dias(60) },
+        { cantidadDisponible: 200, fechaCreacion: dias(-50), fechaVencimiento: dias(60) },
       ],
       'REA-002': [
-        { cantidadDisponible: 1000, ubicacion: 'Cabina de seguridad - Estante A', fechaCreacion: dias(-70), fechaVencimiento: dias(120) },
+        { cantidadDisponible: 1000, fechaCreacion: dias(-70), fechaVencimiento: dias(120) },
       ],
       'REA-003': [
-        { cantidadDisponible: 2000, ubicacion: 'Cabina de seguridad - Estante B', fechaCreacion: dias(-40), fechaVencimiento: dias(500) },
+        { cantidadDisponible: 2000, fechaCreacion: dias(-40), fechaVencimiento: dias(500) },
       ],
     };
 
@@ -101,7 +112,8 @@ export const seedInventario = async () => {
         lotesGenerados.push({
           itemId: item._id,
           cantidadDisponible: l.cantidadDisponible,
-          ubicacion: l.ubicacion,
+          // Depósito (null) por defecto; algunos lotes se ubican en un laboratorio.
+          laboratorioId: l.lab ? (labPorNombre[l.lab] ?? null) : null,
           estado: l.estado || 'disponible',
           fechaCreacion: l.fechaCreacion,
           // Solo consumibles llevan vencimiento (los reutilizables no vencen).

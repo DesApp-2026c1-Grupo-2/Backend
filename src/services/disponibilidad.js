@@ -53,32 +53,55 @@ export const calcularDisponibilidad = async (
   const stockTotal = await stockFisicoNominal(oid, session);
 
   if (item.esConsumible === false) {
-    // ----- Reutilizable: puro temporal (solapamiento) -----
-    // reservadoEnVentana = SUM(cantidadTotal) de reservas activas cuya ventana
-    // solapa [inicioVentana, finVentana]. capacidadNominalTotal es estable
-    // porque nadie decrementa el lote.
-    const agg = await conSession(
-      Reserva.aggregate([
-        {
-          $match: {
-            estado: { $in: ["Pendiente", "En Curso"] },
-            fechaInicioReal: { $lt: finVentana },
-            fechaFinReal: { $gt: inicioVentana },
+    // ----- Reutilizable: temporal (solapamiento) con nominal estable -----
+    // Con el decremento físico (§7/§10), un reutilizable En Curso ya restó su
+    // cantidad de `stockTotal`. Para NO doble-contar (una vez por el lote
+    // decrementado, otra por el término de reservas) ni subestimar ventanas
+    // futuras (el stock "afuera" habrá vuelto en esa ventana), reconstruimos el
+    // NOMINAL ESTABLE sumando lo que está físicamente afuera por reservas En Curso:
+    //   disponible = (stockTotal + enUsoFísico) − reservado{Pendiente,En Curso; solapan}
+    // Esto reproduce exactamente el resultado del modelo temporal previo.
+    const [aggReservado, aggEnUso] = await Promise.all([
+      conSession(
+        Reserva.aggregate([
+          {
+            $match: {
+              estado: { $in: ["Pendiente", "En Curso"] },
+              fechaInicioReal: { $lt: finVentana },
+              fechaFinReal: { $gt: inicioVentana },
+            },
           },
-        },
-        { $unwind: "$materialesReservados" },
-        { $match: { "materialesReservados.itemId": oid } },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: "$materialesReservados.cantidadTotal" },
+          { $unwind: "$materialesReservados" },
+          { $match: { "materialesReservados.itemId": oid } },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: "$materialesReservados.cantidadTotal" },
+            },
           },
-        },
-      ]),
-      session
-    );
-    const reservado = agg.length > 0 ? agg[0].total : 0;
-    return stockTotal - reservado;
+        ]),
+        session
+      ),
+      // enUsoFísico: cantidad físicamente decrementada por reservas En Curso de
+      // este item (sin filtro de ventana: cuenta esté o no dentro de [inicio,fin]).
+      conSession(
+        Reserva.aggregate([
+          { $match: { estado: "En Curso" } },
+          { $unwind: "$materialesReservados" },
+          { $match: { "materialesReservados.itemId": oid } },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: "$materialesReservados.cantidadTotal" },
+            },
+          },
+        ]),
+        session
+      ),
+    ]);
+    const reservado = aggReservado.length > 0 ? aggReservado[0].total : 0;
+    const enUsoFisico = aggEnUso.length > 0 ? aggEnUso[0].total : 0;
+    return stockTotal + enUsoFisico - reservado;
   }
 
   // ----- Consumible: pool finito global (consumo acumulado) -----

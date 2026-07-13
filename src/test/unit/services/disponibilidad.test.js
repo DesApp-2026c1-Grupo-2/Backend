@@ -39,11 +39,29 @@ describe('calcularDisponibilidad', () => {
     it('resta lo reservado en ventanas que solapan', async () => {
       mockItem({ _id: ITEM_ID, esConsumible: false });
       Lote.aggregate.mockResolvedValue([{ _id: ITEM_ID, total: 100 }]);
-      Reserva.aggregate.mockResolvedValue([{ _id: null, total: 30 }]);
+      // 1ª agregación: reservado (solapa) = 30; 2ª: enUsoFísico (nada afuera) = 0.
+      Reserva.aggregate
+        .mockResolvedValueOnce([{ _id: null, total: 30 }])
+        .mockResolvedValueOnce([]);
 
       const resultado = await calcularDisponibilidad(ITEM_ID, INICIO, FIN);
 
-      expect(resultado).toBe(70);
+      expect(resultado).toBe(70); // 100 + 0 − 30
+    });
+
+    it('no subestima ventanas futuras: re-suma el En Curso físicamente afuera (nominal estable)', async () => {
+      mockItem({ _id: ITEM_ID, esConsumible: false });
+      // Físico decrementado a 80 (hay 20 afuera por una reserva En Curso).
+      Lote.aggregate.mockResolvedValue([{ _id: ITEM_ID, total: 80 }]);
+      Reserva.aggregate
+        // reservado: la reserva En Curso NO solapa la ventana consultada.
+        .mockResolvedValueOnce([])
+        // enUsoFísico: 20 físicamente afuera → se re-suman al nominal.
+        .mockResolvedValueOnce([{ _id: null, total: 20 }]);
+
+      const resultado = await calcularDisponibilidad(ITEM_ID, INICIO, FIN);
+
+      expect(resultado).toBe(100); // (80 + 20) − 0 = nominal pleno
     });
 
     it('devuelve el stock total cuando no hay reservas solapadas', async () => {

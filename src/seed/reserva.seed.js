@@ -11,10 +11,12 @@ import Lote from "../models/lote.model.js";
  * - El estado de la reserva se DERIVA de su ventana vs. ahora (Finalizada /
  *   En Curso / Pendiente), igual que lo haría el cron. Así el estado sembrado
  *   no entra en conflicto con la próxima corrida del cron.
- * - Consumo físico (§7): SOLO los consumibles de reservas En Curso/Finalizada
- *   decrementan cantidadDisponible de sus lotes (FIFO). Reutilizables nunca
- *   decrementan; las reservas Pendiente tampoco (solo dejan punteros FIFO para
- *   trazabilidad de descartes).
+ * - Consumo físico (§7): al pasar a "En Curso" se decrementa cantidadDisponible
+ *   (FIFO) tanto de consumibles como de reutilizables. Diferencia al finalizar
+ *   (§10): el reutilizable DEVUELVE su stock, así que una reserva Finalizada tiene
+ *   efecto neto cero para reutilizables (no decrementa en el seed); el consumible
+ *   no vuelve (queda decrementado en En Curso y Finalizada). Las reservas Pendiente
+ *   no decrementan nada (solo dejan punteros FIFO para trazabilidad de descartes).
  */
 
 const HORA = 60 * 60 * 1000;
@@ -81,8 +83,11 @@ export const seedReservas = async () => {
           equiposReservados.push({ equipoId: r.recursoId });
         } else if (ref === "Item") {
           const item = await Item.findById(r.recursoId);
-          // Consumo físico solo para consumibles de reservas ya ejecutadas.
-          const consumir = yaEjecutada && item?.esConsumible === true;
+          // Consumible: decrementa si ya se ejecutó (En Curso o Finalizada; no vuelve).
+          // Reutilizable: decrementa SOLO En Curso (si Finalizada, ya devolvió → neto 0).
+          const consumir = item?.esConsumible === true
+            ? yaEjecutada
+            : estadoReserva === "En Curso";
           const lotesUsados = await asignarLotes(r.recursoId, r.cantidad, consumir);
           materialesReservados.push({
             itemId: r.recursoId,

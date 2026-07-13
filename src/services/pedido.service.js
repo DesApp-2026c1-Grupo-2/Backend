@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Pedido from "../models/pedido.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
@@ -9,10 +10,12 @@ import {
   aprobarConReserva,
   asignarLotesFIFO,
   ConflictoStockError,
+  soportaTransacciones,
 } from "./aprobacionReserva.js";
 import { validarAnticipacionPedido } from "./pedidoValidaciones.js";
 import { registrarHistorial } from "./pedidoHistorial.js";
 import { registrarDescarteService } from "./descarte.service.js";
+import { aplicarDevolucionesFinalizacion } from "./devolucionReserva.js";
 
 // ─── Populate estándar reutilizable ──────────────────────────────────────────
 const POPULATE_PEDIDO = [
@@ -364,7 +367,7 @@ export const aprobarPedidoService = async (pedidoId, usuario) => {
 
 // ─── Finalizar pedido ─────────────────────────────────────────────────────────
 export const finalizarPedidoService = async (pedidoId, body, usuario) => {
-  const { descartes = [], desperfectos = [] } = body;
+  const { descartes = [], desperfectos = [], consumos = [] } = body;
 
   const pedido = await Pedido.findById(pedidoId);
   if (!pedido) throw Object.assign(new Error("Pedido no encontrado"), { status: 404 });
@@ -446,7 +449,48 @@ export const finalizarPedidoService = async (pedidoId, body, usuario) => {
   });
 
   const pedidoFinalizado = await pedido.save();
-  await Reserva.findOneAndUpdate({ pedidoId: pedido._id }, { estado: "Finalizada" });
+
+  // Finalizar la reserva asociada CON devolución de stock (reutilizables 100% y
+  // sobrante de consumibles según `consumos`), en transacción si se soporta. Esto
+  // reemplaza el antiguo flip directo a "Finalizada", que dejaba el stock sin reponer
+  // (los reutilizables decrementados al iniciar se perdían del inventario).
+  const finalizarReservaAsociada = async (session) => {
+    const claimOpts = { new: true, ...(session ? { session } : {}) };
+    const reserva = await Reserva.findOneAndUpdate(
+      { pedidoId: pedido._id, estado: "En Curso" },
+      { $set: { estado: "Finalizada" } },
+      claimOpts
+    );
+    // No está En Curso (nunca arrancó o ya la tomó el cron): no hubo decremento que
+    // devolver, solo aseguramos el estado Finalizada.
+    if (!reserva) {
+      await Reserva.findOneAndUpdate(
+        { pedidoId: pedido._id },
+        { $set: { estado: "Finalizada" } },
+        session ? { session } : undefined
+      );
+      return;
+    }
+    await aplicarDevolucionesFinalizacion(reserva, {
+      consumos,
+      usuarioId: usuario.id,
+      session,
+    });
+    await reserva.save(session ? { session } : undefined);
+  };
+
+  if (await soportaTransacciones()) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await finalizarReservaAsociada(session);
+      });
+    } finally {
+      await session.endSession();
+    }
+  } else {
+    await finalizarReservaAsociada(null);
+  }
 
   await pedidoFinalizado.populate([
     { path: "docente", select: "nombre apellido email" },

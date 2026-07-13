@@ -44,6 +44,7 @@ import { devolverYRegistrar, aplicarDevolucionesFinalizacion } from '../../../se
 import {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
+  getReservasFinalizadas,
   cancelarReserva,
   finalizarReserva
 } from '../../../controllers/reservaControllers.js';
@@ -98,6 +99,55 @@ describe('reservaControllers', () => {
         }
       }));
       expect(res.json).toHaveBeenCalled();
+    });
+  });
+
+  describe('getReservasFinalizadas (Calendario Histórico)', () => {
+    it('filtra por estado Finalizada + rango de fechas y responde el array (200)', async () => {
+      const req = mockReq({ query: { startDate: '2026-06-01', endDate: '2026-06-30' } });
+      const res = mockRes();
+      Reserva.find.mockReturnValue(createQueryMock([{ _id: 'r_1' }]));
+
+      await getReservasFinalizadas(req, res);
+
+      expect(Reserva.find).toHaveBeenCalledWith(expect.objectContaining({
+        estado: 'Finalizada',
+        fechaHora: { $gte: expect.any(Date), $lte: expect.any(Date) }
+      }));
+      expect(res.json).toHaveBeenCalledWith([{ _id: 'r_1' }]);
+    });
+
+    it('agrega laboratorioId al filtro cuando se envía por query (200)', async () => {
+      const req = mockReq({ query: { startDate: '2026-06-01', endDate: '2026-06-30', laboratorioId: 'lab_1' } });
+      const res = mockRes();
+      Reserva.find.mockReturnValue(createQueryMock([]));
+
+      await getReservasFinalizadas(req, res);
+
+      expect(Reserva.find).toHaveBeenCalledWith(expect.objectContaining({
+        estado: 'Finalizada',
+        laboratorioId: 'lab_1'
+      }));
+    });
+
+    it('responde 400 sin consultar la BD si falta el rango de fechas', async () => {
+      const req = mockReq({ query: { startDate: '2026-06-01' } }); // falta endDate
+      const res = mockRes();
+
+      await getReservasFinalizadas(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(Reserva.find).not.toHaveBeenCalled();
+    });
+
+    it('responde 500 si la query falla', async () => {
+      const req = mockReq({ query: { startDate: '2026-06-01', endDate: '2026-06-30' } });
+      const res = mockRes();
+      Reserva.find.mockImplementation(() => { throw new Error('boom'); });
+
+      await getReservasFinalizadas(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
     });
   });
 

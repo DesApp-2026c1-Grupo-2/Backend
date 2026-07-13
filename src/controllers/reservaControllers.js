@@ -58,6 +58,42 @@ const getReservasActivas = async (req, res) => {
   }
 };
 
+// Controlador para listar reservas FINALIZADAS por rango de fechas (calendario
+// histórico del frontend). A diferencia de las activas, las finalizadas se
+// acumulan indefinidamente, por eso el rango (startDate/endDate) es OBLIGATORIO.
+// Acepta ?laboratorioId= opcional para acotar a un laboratorio.
+const getReservasFinalizadas = async (req, res) => {
+  try {
+    const { startDate, endDate, laboratorioId } = req.query;
+
+    // Rango obligatorio: sin él no devolvemos todo el histórico de finalizadas.
+    const parsedStart = new Date(startDate);
+    const parsedEnd = new Date(endDate);
+    if (!startDate || !endDate || isNaN(parsedStart) || isNaN(parsedEnd)) {
+      return res.status(400).json({
+        error: "startDate y endDate son obligatorios (rango de fechas del calendario)"
+      });
+    }
+
+    const filtro = {
+      estado: 'Finalizada',
+      fechaHora: { $gte: parsedStart, $lte: parsedEnd }
+    };
+    if (laboratorioId) filtro.laboratorioId = laboratorioId;
+
+    const reservas = await Reserva.find(filtro)
+      .populate("laboratorioId", "nombre tipo capacidad")
+      .populate("docenteId", "nombre apellido email")
+      .populate("pedidoId", "materia alumnos") // Info clave del pedido original
+      .sort({ fechaHora: 1 });
+
+    res.json(reservas);
+  } catch (error) {
+    console.error("Error en getReservasFinalizadas:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const cancelarReserva = async (req, res) => {
   try {
     const { id } = req.params;
@@ -182,6 +218,7 @@ const finalizarReserva = async (req, res) => {
 export {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
+  getReservasFinalizadas,
   cancelarReserva,
   finalizarReserva
 };

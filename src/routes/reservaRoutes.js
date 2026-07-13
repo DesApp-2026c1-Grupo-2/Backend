@@ -8,6 +8,10 @@ import { finalizarReservaSchema } from "../schemas/reservaSchema.js";
 // GET: Obtener todas las reservas activas (Soporta query params ?startDate=...&endDate=...)
 router.get("/activas", validarJWT, reservaControllers.getReservasActivas);
 
+// GET: reservas finalizadas por rango de fechas (calendario histórico).
+// Requiere ?startDate=...&endDate=... ; acepta ?laboratorioId= opcional.
+router.get("/finalizadas", validarJWT, reservaControllers.getReservasFinalizadas);
+
 // GET: Obtener reservas activas filtradas por un laboratorio específico
 router.get("/laboratorio/:laboratorioId", validarJWT, reservaControllers.getReservasActivasPorLaboratorio);
 

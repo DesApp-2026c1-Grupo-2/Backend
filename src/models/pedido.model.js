@@ -4,7 +4,11 @@ const recursoSchema = new mongoose.Schema({
   recursoId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
-    refPath: "tipoRecurso", // Permite popular dinámicamente entre Equipo e Item
+    // refPath debe ser la ruta COMPLETA desde la raíz del documento. Como
+    // 'recursos' es un array de subdocumentos, Mongoose necesita 'recursos.tipoRecurso'
+    // (no 'tipoRecurso' a secas) para resolver el populate dinámico; con la ruta
+    // relativa el populate falla en silencio y devuelve el ObjectId sin poblar.
+    refPath: "recursos.tipoRecurso", // Popula dinámicamente entre Equipo e Item
   },
   tipoRecurso: {
     type: String,

@@ -8,7 +8,7 @@ vi.mock('../../../models/lote.model.js', () => ({
   default: { updateOne: vi.fn().mockResolvedValue({}) },
 }));
 vi.mock('../../../models/item.model.js', () => ({
-  default: { findById: vi.fn() },
+  default: { findById: vi.fn(), find: vi.fn() },
 }));
 vi.mock('../../../services/movimientoStock.service.js', () => ({
   registrarMovimiento: vi.fn().mockResolvedValue({}),
@@ -21,6 +21,7 @@ import { registrarMovimiento } from '../../../services/movimientoStock.service.j
 import {
   aplicarDevolucionesFinalizacion,
   validarConsumosRequeridos,
+  validarDescartesReutilizables,
 } from '../../../services/devolucionReserva.js';
 
 // Item.findById(id).select(...).session(session) → item indicado.
@@ -186,5 +187,45 @@ describe('validarConsumosRequeridos', () => {
 
     await expect(validarConsumosRequeridos(reserva, [])).resolves.toBeUndefined();
     expect(Item.findById).not.toHaveBeenCalled();
+  });
+});
+
+describe('validarDescartesReutilizables', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  // Item.find({...}).select(...).session(session) → lista de items.
+  const mockFind = (items) =>
+    Item.find.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        session: vi.fn().mockResolvedValue(items),
+      }),
+    });
+
+  it('lanza 400 listando los consumibles cuando un descarte apunta a un consumible', async () => {
+    mockFind([{ _id: 'item_1', esConsumible: true, nombre: 'Agua Destilada' }]);
+
+    await expect(
+      validarDescartesReutilizables([{ tipo: 'reactivo', itemId: 'item_1', cantidad: 1 }])
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('pasa si todos los descartes son de reutilizables', async () => {
+    mockFind([{ _id: 'item_2', esConsumible: false, nombre: 'Vaso' }]);
+
+    await expect(
+      validarDescartesReutilizables([{ tipo: 'material', itemId: 'item_2', cantidad: 1 }])
+    ).resolves.toBeUndefined();
+  });
+
+  it('ignora los desperfectos de equipo y no consulta items si no hay itemId', async () => {
+    await expect(
+      validarDescartesReutilizables([{ tipo: 'equipo', equipoId: 'eq_1' }])
+    ).resolves.toBeUndefined();
+    expect(Item.find).not.toHaveBeenCalled();
+  });
+
+  it('sin descartes no consulta la base', async () => {
+    await expect(validarDescartesReutilizables([])).resolves.toBeUndefined();
+    expect(Item.find).not.toHaveBeenCalled();
   });
 });

@@ -139,6 +139,48 @@ export const validarConsumosRequeridos = async (
   }
 };
 
+/*
+ * Regla de negocio: el descarte solo aplica a ítems reutilizables
+ * (esConsumible === false). Un consumible no se descarta —o se consume (se reporta
+ * vía `consumos`) o se devuelve sin consumir—, así que rechazamos de entrada
+ * cualquier descarte que apunte a un consumible.
+ *
+ * Se ejecuta ANTES del loop que registra descartes en finalizarPedidoService
+ * (fail-fast): registrarDescarteService commitea su propia transacción por
+ * descarte, por lo que validar acá evita dejar descartes parciales persistidos.
+ *
+ * `descartes`: [{ tipo, itemId, ... }] — los de tipo "equipo" (desperfectos) se
+ * ignoran, no son descartes de stock. Lanza Error con `status: 400` listando los
+ * consumibles encontrados.
+ */
+export const validarDescartesReutilizables = async (descartes = [], { session = null } = {}) => {
+  const itemIds = [
+    ...new Set(
+      descartes
+        .filter((d) => d?.tipo !== "equipo" && d?.itemId)
+        .map((d) => String(d.itemId))
+    ),
+  ];
+  if (itemIds.length === 0) return;
+
+  const items = await Item.find({ _id: { $in: itemIds } })
+    .select("esConsumible nombre")
+    .session(session ?? null);
+
+  const consumibles = items
+    .filter((item) => item.esConsumible !== false)
+    .map((item) => item.nombre || String(item._id));
+
+  if (consumibles.length > 0) {
+    throw Object.assign(
+      new Error(
+        `Solo se pueden descartar ítems reutilizables. Los siguientes son consumibles y deben reportarse como consumo: ${consumibles.join(", ")}.`
+      ),
+      { status: 400 }
+    );
+  }
+};
+
 export const aplicarDevolucionesFinalizacion = async (
   reserva,
   { consumos = [], usuarioId = null, session = null } = {}

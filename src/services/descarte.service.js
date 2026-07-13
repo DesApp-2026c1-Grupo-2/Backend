@@ -48,6 +48,16 @@ export const registrarDescarteService = async (data, usuario) => {
       const item = await Item.findById(itemId).session(session);
       if (!item) throw new Error("El ítem no existe.");
 
+      // Solo los reutilizables (esConsumible === false) se descartan: el descarte
+      // es el único evento que les resta stock físico (romperse durante el uso).
+      // Los consumibles no se descartan, se reportan mediante su consumo al
+      // finalizar el pedido (ver validarConsumosRequeridos en devolucionReserva.js).
+      if (item.esConsumible !== false) {
+        throw new Error(
+          "Solo se pueden registrar descartes de ítems reutilizables. Los consumibles se reportan mediante su consumo al finalizar el pedido."
+        );
+      }
+
       // Validar histórico para no descartar más de lo usado
       const descartesPrevios = await Descarte.find({ pedidoId, itemId }).session(session);
       const totalDescartado = descartesPrevios.reduce((acc, curr) => acc + curr.cantidad, 0);

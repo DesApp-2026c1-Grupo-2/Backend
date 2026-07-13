@@ -9,6 +9,17 @@ const createQueryMock = (resolvedValue) => {
   return mockPromise;
 };
 
+// Cadena find().sort().skip().limit().populate().populate() que resuelve al array.
+const createChainMock = (docs) => {
+  const chain = {};
+  chain.sort = vi.fn().mockReturnValue(chain);
+  chain.skip = vi.fn().mockReturnValue(chain);
+  chain.limit = vi.fn().mockReturnValue(chain);
+  chain.populate = vi.fn().mockReturnValue(chain);
+  chain.then = (resolve) => resolve(docs); // thenable: awaitable como el query real
+  return chain;
+};
+
 // 1. Mockear completamente el modelo en los controladores
 vi.mock('../../../models/equipo.model.js', () => {
   const MockEquipo = function(data) {
@@ -20,6 +31,7 @@ vi.mock('../../../models/equipo.model.js', () => {
   MockEquipo.find = vi.fn();
   MockEquipo.findOne = vi.fn();
   MockEquipo.findOneAndUpdate = vi.fn();
+  MockEquipo.countDocuments = vi.fn();
   return { default: MockEquipo };
 });
 
@@ -114,12 +126,13 @@ describe('equipoControllers', () => {
   });
 
   describe('getEquipos', () => {
-    it('debe retornar una lista de equipos filtrada por estado y popular relaciones (200)', async () => {
+    it('debe retornar equipos paginados filtrados por estado y popular relaciones (200)', async () => {
       const req = mockReq({ query: { estado: 'disponible', edificioId: 'null' } });
       const res = mockRes();
       const dataMock = [{ id: '1', nombre: 'Eq 1' }];
 
-      Equipo.find.mockReturnValue(createQueryMock(dataMock));
+      Equipo.find.mockReturnValue(createChainMock(dataMock));
+      Equipo.countDocuments.mockResolvedValueOnce(1);
 
       await getEquipos(req, res);
 
@@ -128,7 +141,22 @@ describe('equipoControllers', () => {
         estado: 'disponible',
         edificioId: null
       });
-      expect(res.json).toHaveBeenCalledWith(dataMock);
+      expect(res.json).toHaveBeenCalledWith({ total: 1, page: 1, limit: 20, equipos: dataMock });
+    });
+
+    it('aplica búsqueda parcial (q) sobre nombre y código', async () => {
+      const req = mockReq({ query: { q: 'micro' } });
+      const res = mockRes();
+      Equipo.find.mockReturnValue(createChainMock([]));
+      Equipo.countDocuments.mockResolvedValueOnce(0);
+
+      await getEquipos(req, res);
+
+      const filtros = Equipo.find.mock.calls[0][0];
+      expect(filtros.$or).toHaveLength(2);
+      expect(filtros.$or[0].nombre).toBeInstanceOf(RegExp);
+      expect(filtros.$or[1].codigo).toBeInstanceOf(RegExp);
+      expect(res.json).toHaveBeenCalledWith({ total: 0, page: 1, limit: 20, equipos: [] });
     });
 
     it('debe retornar error 400 si hay un CastError en las queries de búsqueda', async () => {

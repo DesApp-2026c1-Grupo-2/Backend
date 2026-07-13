@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Pedido from "../models/pedido.model.js";
 import Equipo from "../models/equipo.model.js";
 import Item from "../models/item.model.js";
@@ -9,10 +10,12 @@ import {
   aprobarConReserva,
   asignarLotesFIFO,
   ConflictoStockError,
+  soportaTransacciones,
 } from "./aprobacionReserva.js";
 import { validarAnticipacionPedido } from "./pedidoValidaciones.js";
 import { registrarHistorial } from "./pedidoHistorial.js";
 import { registrarDescarteService } from "./descarte.service.js";
+import { aplicarDevolucionesFinalizacion } from "./devolucionReserva.js";
 
 // ─── Populate estándar reutilizable ──────────────────────────────────────────
 const POPULATE_PEDIDO = [
@@ -31,6 +34,12 @@ export const getPedidosService = async (usuario) => {
 
   const filtro = { activo: { $ne: false } };
   if (rol === "DOCENTE") filtro.docente = id;
+
+  // Actualizar automáticamente a "Expirado" pedidos pendientes cuya fechaHora ya pasó
+  await Pedido.updateMany(
+    { estado: "Pendiente", fechaHora: { $lt: new Date() } },
+    { $set: { estado: "Expirado" } }
+  );
 
   const pedidos = await Pedido.find(filtro)
     .populate("docente", "nombre apellido email")
@@ -54,6 +63,12 @@ export const getPedidosService = async (usuario) => {
 // ─── Obtener pedido por ID ────────────────────────────────────────────────────
 export const getPedidoByIdService = async (pedidoId, usuario) => {
   const { id: userId, rol } = usuario;
+
+  // Actualizar automáticamente a "Expirado" si es pendiente y su fechaHora ya pasó
+  await Pedido.updateMany(
+    { _id: pedidoId, estado: "Pendiente", fechaHora: { $lt: new Date() } },
+    { $set: { estado: "Expirado" } }
+  );
 
   const pedido = await Pedido.findById(pedidoId)
     .populate("docente", "nombre apellido email")
@@ -154,13 +169,25 @@ export const updatePedidoService = async (pedidoId, body, usuario) => {
   };
 
   const cambios = {};
-  const camposSimples = ["materia", "alumnos", "duracionClase", "fechaHora", "laboratorio"];
+  const camposSimples = ["materia", "alumnos", "duracionClase", "fechaHora"];
 
   for (const campo of camposSimples) {
     if (actualizacion[campo] === undefined) continue;
     if (normalize(pedidoExistente[campo]) !== normalize(actualizacion[campo])) {
       cambios[campo] = { antes: pedidoExistente[campo], despues: actualizacion[campo] };
     }
+  }
+
+  if (actualizacion.laboratorio !== undefined && normalize(pedidoExistente.laboratorio) !== normalize(actualizacion.laboratorio)) {
+    const Laboratorio = (await import("../models/laboratorio.model.js")).default;
+    const [labAntes, labDespues] = await Promise.all([
+      pedidoExistente.laboratorio ? Laboratorio.findById(pedidoExistente.laboratorio, "nombre") : null,
+      actualizacion.laboratorio ? Laboratorio.findById(actualizacion.laboratorio, "nombre") : null
+    ]);
+    cambios.laboratorio = {
+      antes: labAntes ? labAntes.nombre : (pedidoExistente.laboratorio || "—"),
+      despues: labDespues ? labDespues.nombre : (actualizacion.laboratorio || "—")
+    };
   }
 
   if (actualizacion.fechaInicioReal && actualizacion.fechaFinReal) {
@@ -340,7 +367,7 @@ export const aprobarPedidoService = async (pedidoId, usuario) => {
 
 // ─── Finalizar pedido ─────────────────────────────────────────────────────────
 export const finalizarPedidoService = async (pedidoId, body, usuario) => {
-  const { descartes = [], desperfectos = [] } = body;
+  const { descartes = [], desperfectos = [], consumos = [] } = body;
 
   const pedido = await Pedido.findById(pedidoId);
   if (!pedido) throw Object.assign(new Error("Pedido no encontrado"), { status: 404 });
@@ -419,15 +446,51 @@ export const finalizarPedidoService = async (pedidoId, body, usuario) => {
   registrarHistorial(pedido, usuario.id, "FINALIZACION", "Pedido finalizado con reporte de uso.", {
     estado: { antes: "Aceptado", despues: "Finalizado" },
     reporteFinal: { descartes: descartesSnapshot, desperfectos: desperfectosSnapshot },
-  });;
-
-  registrarHistorial(pedido, usuario.id, "FINALIZACION", "Pedido finalizado con reporte de uso.", {
-    estado: { antes: "Aceptado", despues: "Finalizado" },
-    reporteFinal: { descartes, desperfectos },
   });
 
   const pedidoFinalizado = await pedido.save();
-  await Reserva.findOneAndUpdate({ pedidoId: pedido._id }, { estado: "Finalizada" });
+
+  // Finalizar la reserva asociada CON devolución de stock (reutilizables 100% y
+  // sobrante de consumibles según `consumos`), en transacción si se soporta. Esto
+  // reemplaza el antiguo flip directo a "Finalizada", que dejaba el stock sin reponer
+  // (los reutilizables decrementados al iniciar se perdían del inventario).
+  const finalizarReservaAsociada = async (session) => {
+    const claimOpts = { new: true, ...(session ? { session } : {}) };
+    const reserva = await Reserva.findOneAndUpdate(
+      { pedidoId: pedido._id, estado: "En Curso" },
+      { $set: { estado: "Finalizada" } },
+      claimOpts
+    );
+    // No está En Curso (nunca arrancó o ya la tomó el cron): no hubo decremento que
+    // devolver, solo aseguramos el estado Finalizada.
+    if (!reserva) {
+      await Reserva.findOneAndUpdate(
+        { pedidoId: pedido._id },
+        { $set: { estado: "Finalizada" } },
+        session ? { session } : undefined
+      );
+      return;
+    }
+    await aplicarDevolucionesFinalizacion(reserva, {
+      consumos,
+      usuarioId: usuario.id,
+      session,
+    });
+    await reserva.save(session ? { session } : undefined);
+  };
+
+  if (await soportaTransacciones()) {
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await finalizarReservaAsociada(session);
+      });
+    } finally {
+      await session.endSession();
+    }
+  } else {
+    await finalizarReservaAsociada(null);
+  }
 
   await pedidoFinalizado.populate([
     { path: "docente", select: "nombre apellido email" },
@@ -489,12 +552,23 @@ export const updateEstadoService = async (pedidoId, body, usuario) => {
     pedido.motivoRechazo = motivoRechazo || "Sin motivo especificado";
   }
 
+  let mensajeHistorial = `Estado cambiado de "${estadoAnterior}" a "${estado}"`;
+  
+  if (estado === "Cancelado") {
+    if (estadoAnterior === "Aceptado") {
+      mensajeHistorial += ". Se canceló el pedido y se liberaron las reservas, el stock y el equipamiento asociado.";
+    } else {
+      mensajeHistorial += ". El pedido fue cancelado antes de ser aprobado, por lo que no requirió liberar reservas.";
+    }
+  } else if (estado === "Rechazado") {
+    mensajeHistorial += `. Motivo: ${pedido.motivoRechazo}`;
+  }
+
   registrarHistorial(
     pedido,
     usuario.id,
     "CAMBIO_ESTADO",
-    `Estado cambiado de "${estadoAnterior}" a "${estado}"` +
-      (estado === "Rechazado" ? `. Motivo: ${pedido.motivoRechazo}` : ""),
+    mensajeHistorial,
     { estado: { antes: estadoAnterior, despues: estado } }
   );
 

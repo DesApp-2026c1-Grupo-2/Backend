@@ -47,6 +47,22 @@ export const seedHistorialMantenimiento = async () => {
       },
     ];
 
+    // Coherencia con el estado de los equipos: todo equipo que quede en estado
+    // "mantenimiento" debe tener un registro ABIERTO (fin: null); de lo contrario
+    // no se lo puede finalizar (el controller devolvería 409 "no hay
+    // mantenimiento abierto"). Creamos uno abierto por cada equipo así.
+    const equiposEnMantenimiento = await Equipo.find({ estado: "mantenimiento" });
+    for (const equipo of equiposEnMantenimiento) {
+      registros.push({
+        equipoId: equipo._id,
+        tipo: "correctivo",
+        descripcion: "Mantenimiento en curso.",
+        responsableId: responsable ? responsable._id : null,
+        fecha: new Date(ahora - 2 * dia),
+        fin: null,
+      });
+    }
+
     await HistorialMantenimiento.insertMany(registros);
     console.log("✅ Historial de mantenimiento sembrado correctamente.");
   } catch (error) {

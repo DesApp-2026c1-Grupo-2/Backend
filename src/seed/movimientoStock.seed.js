@@ -16,9 +16,10 @@ import { stockFisicoItem } from "../services/movimientoStock.service.js";
  *
  * Reconstrucción, por item y en orden cronológico:
  *   1. COMPRA           → alta inicial que dejó el stock en su valor de partida.
- *   2. APROBACION_RESERVA → consumo físico de consumibles al iniciar cada
- *                           reserva ejecutada (En Curso/Finalizada). Los
- *                           reutilizables NO generan movimiento (§ modelo).
+ *   2. APROBACION_RESERVA → egreso físico al iniciar cada reserva ejecutada.
+ *                           Consumibles: En Curso y Finalizada (no vuelven).
+ *                           Reutilizables: solo En Curso (los de Finalizada ya
+ *                           devolvieron, efecto neto cero — no se reconstruyen).
  *   3. DESCARTE         → cada pérdida registrada por descarte.seed.
  *
  * El stock inicial se deduce hacia atrás: inicial = final + Σ egresos, de modo
@@ -50,20 +51,26 @@ export const seedMovimientosStock = async () => {
       // Egresos que efectivamente cambiaron el stock físico de este item.
       const egresos = [];
 
-      // Consumo de consumibles al iniciar reservas ejecutadas.
-      if (item.esConsumible) {
-        for (const reserva of reservasEjecutadas) {
-          for (const mat of reserva.materialesReservados) {
-            if (String(mat.itemId) === String(item._id) && mat.cantidadTotal > 0) {
-              egresos.push({
-                tipo: "APROBACION_RESERVA",
-                cantidad: -mat.cantidadTotal,
-                fecha: reserva.fechaInicioReal,
-                reservaId: reserva._id,
-                usuarioId: reserva.docenteId,
-                observacion: "Consumo físico al iniciar la reserva",
-              });
-            }
+      // Egreso al iniciar la reserva. Consumible: cualquier reserva ejecutada (En
+      // Curso o Finalizada; el consumible no vuelve). Reutilizable: SOLO En Curso —
+      // las Finalizada ya devolvieron su stock (efecto neto cero), así que su
+      // decremento no está reflejado en el físico actual y no debe reconstruirse.
+      const reservasConEgreso = item.esConsumible
+        ? reservasEjecutadas
+        : reservasEjecutadas.filter((r) => r.estado === "En Curso");
+      for (const reserva of reservasConEgreso) {
+        for (const mat of reserva.materialesReservados) {
+          if (String(mat.itemId) === String(item._id) && mat.cantidadTotal > 0) {
+            egresos.push({
+              tipo: "APROBACION_RESERVA",
+              cantidad: -mat.cantidadTotal,
+              fecha: reserva.fechaInicioReal,
+              reservaId: reserva._id,
+              usuarioId: reserva.docenteId,
+              observacion: item.esConsumible
+                ? "Consumo físico al iniciar la reserva"
+                : "Salida de material reutilizable al iniciar la reserva",
+            });
           }
         }
       }

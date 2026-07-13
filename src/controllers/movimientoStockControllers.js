@@ -1,23 +1,15 @@
 import MovimientoStock from "../models/movimientoStock.model.js";
+import { parsePaginacion } from "../utils/paginacion.js";
 
 /*
  * Historial de movimientos de stock (consulta).
  * Ver docs/Diseno_Historial_Movimientos_Stock.md: todas las pantallas
  * (historial de descartes, movimientos por laboratorio, auditoría, etc.) se
  * construyen consultando esta única colección con filtros.
+ *
+ * El log de auditoría no tiene techo, por eso paginamos con default 50 y máx
+ * 200 (ver utils/paginacion.js).
  */
-
-const LIMIT_DEFAULT = 50;
-const LIMIT_MAX = 200;
-
-// Normaliza page/limit de la query a enteros acotados (evita traer la colección
-// completa, que es un log de auditoría sin techo). Devuelve { page, limit, skip }.
-const parsePaginacion = (query) => {
-  const page = Math.max(1, parseInt(query.page, 10) || 1);
-  const limitPedido = parseInt(query.limit, 10) || LIMIT_DEFAULT;
-  const limit = Math.min(Math.max(1, limitPedido), LIMIT_MAX);
-  return { page, limit, skip: (page - 1) * limit };
-};
 
 export const getMovimientos = async (req, res) => {
   try {

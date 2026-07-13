@@ -4,6 +4,7 @@ import Item from "../models/item.model.js";
 import Lote from "../models/lote.model.js";
 import { soportaTransacciones } from "./aprobacionReserva.js";
 import { registrarMovimiento } from "./movimientoStock.service.js";
+import { devolverYRegistrar } from "./devolucionReserva.js";
 
 /*
  * Cron de ciclo de vida de reservas.
@@ -49,8 +50,10 @@ const ejecutarConsumoFisico = async (reserva, session = null) => {
 
   for (const mat of reserva.materialesReservados) {
     const item = await Item.findById(mat.itemId).session(session);
-    // Reutilizables (o item ausente) no ejecutan consumo físico.
-    if (!item || item.esConsumible !== true) continue;
+    // Reutilizables y consumibles decrementan físico al iniciar (§7). El
+    // reutilizable devolverá su stock al finalizar; el consumible solo el
+    // sobrante en una finalización manual (§10).
+    if (!item) continue;
 
     // `activo:{ $ne:false }` alinea el consumo FIFO con la definición canónica del
     // agregado (stockFisicoItem): un lote dado de baja lógica (activo:false) puede
@@ -89,10 +92,10 @@ const ejecutarConsumoFisico = async (reserva, session = null) => {
     }
     mat.lotesUsados = lotesUsados;
 
-    // Movimiento de historial: egreso físico del consumible al iniciar la
-    // reserva (invariante nueva = anterior - consumido). `totalFisico` es el
-    // stock agregado del item ANTES de este consumo. Es un movimiento de sistema
-    // (sin usuarioId): lo dispara el cron, no una persona.
+    // Movimiento de historial: egreso físico al iniciar la reserva (invariante
+    // nueva = anterior - egreso). `totalFisico` es el stock agregado del item
+    // ANTES de este egreso. Es un movimiento de sistema (sin usuarioId): lo
+    // dispara el cron, no una persona.
     await registrarMovimiento({
       itemId: mat.itemId,
       tipoMovimiento: 'APROBACION_RESERVA',
@@ -101,7 +104,9 @@ const ejecutarConsumoFisico = async (reserva, session = null) => {
       cantidadNueva: totalFisico - mat.cantidadTotal,
       reservaId: reserva._id,
       destinoLaboratorioId: reserva.laboratorioId,
-      observacion: 'Consumo físico al iniciar la reserva'
+      observacion: item.esConsumible
+        ? 'Consumo físico al iniciar la reserva'
+        : 'Salida de material reutilizable al iniciar la reserva'
     }, session);
   }
 };
@@ -172,8 +177,55 @@ const notificarPersonal = (reservaId, error) => {
 };
 
 /*
+ * Devolución física de materiales REUTILIZABLES al finalizar la reserva (§10): el
+ * reutilizable se decrementó al iniciar (§7), así que al cerrarse vuelve el 100%
+ * de lo que salió (repone `lotesUsados` + registra DEVOLUCION con `cantidad > 0`).
+ * Los consumibles NO se devuelven acá (default "se consumió todo"; el sobrante se
+ * repone solo en la finalización manual, ver reservaControllers.finalizarReserva).
+ *
+ * Evento de sistema (sin usuarioId). Transaccional si la conexión lo soporta;
+ * best-effort: un fallo no debe impedir la finalización de las demás reservas.
+ */
+const devolverReutilizablesAlFinalizar = async (reserva) => {
+  const ejecutar = async (session) => {
+    for (const mat of reserva.materialesReservados ?? []) {
+      const item = await Item.findById(mat.itemId).select("esConsumible").session(session ?? null);
+      if (!item || item.esConsumible !== false) continue; // solo reutilizables
+      const total = (mat.lotesUsados ?? []).reduce((acc, l) => acc + l.cantidad, 0);
+      if (total <= 0) continue;
+      await devolverYRegistrar(reserva, mat, total, {
+        session,
+        observacion: "Devolución de material reutilizable al finalizar la reserva",
+      });
+    }
+  };
+
+  try {
+    if (await soportaTransacciones()) {
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          await ejecutar(session);
+        });
+      } finally {
+        await session.endSession();
+      }
+    } else {
+      await ejecutar(null);
+    }
+  } catch (error) {
+    console.error(
+      `[cronReservas] no se pudo devolver los reutilizables de la reserva ${reserva._id}:`,
+      error.message
+    );
+  }
+};
+
+/*
  * §9: promueve En Curso → Finalizada las reservas cuya ventana ya terminó, con
- * claim atómico. No hay devolución de stock (§10).
+ * claim atómico. Al finalizar, devuelve físicamente los materiales reutilizables
+ * (§10); los consumibles se dan por consumidos (el sobrante solo vuelve en la
+ * finalización manual).
  * @returns {number} cantidad de reservas finalizadas.
  */
 export const finalizarReservasVencidas = async () => {
@@ -189,7 +241,10 @@ export const finalizarReservasVencidas = async () => {
       { $set: { estado: "Finalizada" } },
       { new: true }
     );
-    if (claim) finalizadas += 1;
+    if (claim) {
+      finalizadas += 1;
+      await devolverReutilizablesAlFinalizar(claim);
+    }
   }
   return finalizadas;
 };

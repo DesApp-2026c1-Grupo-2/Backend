@@ -1,5 +1,8 @@
+import mongoose from "mongoose";
 import Lote from "../models/lote.model.js";
 import { registrarMovimiento, stockFisicoItem } from "../services/movimientoStock.service.js";
+import { soportaTransacciones } from "../services/aprobacionReserva.js";
+import { parsePaginacion } from "../utils/paginacion.js";
 
 /*
  * Registro de historial en el CRUD de lotes (COMPRA/AJUSTE_MANUAL/BAJA).
@@ -45,20 +48,59 @@ const createLote = async (req, res) => {
   }
 };
 
-// R: Obtener todos los lotes (con filtros opcionales)
+// R: Obtener lotes (con filtros opcionales), ordenados FEFO.
+// Shape compatible: devuelve un ARRAY por defecto; si llegan `page`/`limit`
+// (p. ej. panel de descartados) devuelve `{ total, page, limit, lotes }`.
+// El item se trae con nombre/código/tipo, igual que el populate anterior.
 const getLotes = async (req, res) => {
   try {
-    const { itemId, estado, ubicacion } = req.query;
+    const { itemId, estado } = req.query;
     const filtros = { activo: { $ne: false } };
 
-    if (itemId) filtros.itemId = itemId;
+    if (itemId) filtros.itemId = new mongoose.Types.ObjectId(itemId);
     if (estado) filtros.estado = estado;
-    if (ubicacion) filtros.ubicacion = ubicacion;
 
-    // Usamos populate para traer información relevante de las colecciones relacionadas
-    const lotes = await Lote.find(filtros)
-      .populate('itemId', 'nombre codigo tipo'); // Traemos el nombre, código y tipo del Item
+    // FEFO: lo que vence primero, arriba. `_sinVenc` empuja los lotes sin
+    // fechaVencimiento al FINAL (Mongo, en orden ascendente, pondría los null
+    // primero). Desempate por fechaCreacion, igual que la asignación de stock.
+    const pipeline = [
+      { $match: filtros },
+      { $addFields: { _sinVenc: { $cond: [{ $gt: ["$fechaVencimiento", null] }, 0, 1] } } },
+      { $sort: { _sinVenc: 1, fechaVencimiento: 1, fechaCreacion: 1 } },
+    ];
 
+    const paginado = req.query.page !== undefined || req.query.limit !== undefined;
+    let page, limit;
+    if (paginado) {
+      const p = parsePaginacion(req.query, { def: 20, max: 100 });
+      ({ page, limit } = p);
+      pipeline.push({ $skip: p.skip }, { $limit: limit });
+    }
+
+    // $lookup + reshape del item a { id, nombre, codigo, tipo } y del lote a id.
+    pipeline.push(
+      { $lookup: { from: "items", localField: "itemId", foreignField: "_id", as: "_item" } },
+      { $unwind: { path: "$_item", preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          id: "$_id",
+          itemId: {
+            id: "$_item._id",
+            nombre: "$_item.nombre",
+            codigo: "$_item.codigo",
+            tipo: "$_item.tipo",
+          },
+        },
+      },
+      { $project: { _sinVenc: 0, _item: 0, __v: 0 } },
+    );
+
+    const lotes = await Lote.aggregate(pipeline);
+
+    if (paginado) {
+      const total = await Lote.countDocuments(filtros);
+      return res.status(200).json({ total, page, limit, lotes });
+    }
     return res.status(200).json(lotes);
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -149,6 +191,138 @@ const updateLote = async (req, res) => {
   }
 };
 
+// Divide un lote: decrementa `cantidad` del origen y crea un lote NUEVO en el destino
+// con esa porción. Ambas operaciones deben ser atómicas para no perder/duplicar stock,
+// por eso se envuelven en una transacción si la conexión la soporta (mismo patrón que
+// aprobacionReserva/cronReservas); en standalone corre degradado sin sesión. El lote
+// destino hereda itemId/fechaCreacion/fechaVencimiento para no alterar el
+// orden FEFO/FIFO del stock. Devuelve el lote destino creado.
+const moverLoteParcial = async (lote, cantidad, destino) => {
+  const ejecutar = async (session) => {
+    const opts = session ? { session } : {};
+    await Lote.updateOne(
+      { _id: lote._id },
+      { $inc: { cantidadDisponible: -cantidad } },
+      opts
+    );
+    const [loteDestino] = await Lote.create(
+      [{
+        itemId: lote.itemId,
+        cantidadDisponible: cantidad,
+        laboratorioId: destino,
+        estado: "disponible",
+        fechaCreacion: lote.fechaCreacion,
+        fechaVencimiento: lote.fechaVencimiento,
+      }],
+      opts
+    );
+    return loteDestino;
+  };
+
+  if (!(await soportaTransacciones())) {
+    return ejecutar(null);
+  }
+  const session = await mongoose.startSession();
+  try {
+    let loteDestino;
+    await session.withTransaction(async () => {
+      loteDestino = await ejecutar(session);
+    });
+    return loteDestino;
+  } finally {
+    await session.endSession();
+  }
+};
+
+// Transferir un lote entre depósito y laboratorios (o devolverlo al depósito).
+// `laboratorioDestinoId === null` => DEVOLUCION (vuelve al depósito);
+// cualquier otro destino => TRANSFERENCIA.
+//
+// `cantidad` (opcional) => transferencia PARCIAL: solo esa porción se mueve a un lote
+// nuevo en el destino (el origen conserva el resto). Omitida (o == cantidadDisponible)
+// => se mueve el lote completo cambiando su `laboratorioId`, sin crear un lote nuevo,
+// para no dejar lotes en 0.
+//
+// En ambos casos es un movimiento de UBICACIÓN: el stock físico agregado del item NO
+// cambia (70 + 30 = 100), por eso el movimiento va con `cantidad: 0` y
+// `cantidadAnterior == cantidadNueva` (ver invariante en movimientoStock.model.js). El
+// monto trasladado y el origen/destino quedan como metadatos del movimiento; en el caso
+// parcial, `loteId` apunta al lote destino nuevo.
+const transferirLote = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { laboratorioDestinoId = null, cantidad, observacion } = req.body;
+
+    const lote = await Lote.findOne({ _id: id, activo: { $ne: false } });
+    if (!lote) {
+      return res.status(404).json({ error: "Lote no encontrado" });
+    }
+
+    const origen = lote.laboratorioId ?? null;         // null = depósito
+    const destino = laboratorioDestinoId ?? null;       // null = depósito
+
+    if (String(origen) === String(destino)) {
+      return res.status(400).json({
+        error: "El lote ya se encuentra en la ubicación de destino"
+      });
+    }
+
+    // Transferencia parcial: solo si se pidió una cantidad MENOR a la disponible.
+    // `cantidad == cantidadDisponible` se trata como move completo (no crea lote en 0).
+    let esParcial = false;
+    if (cantidad !== undefined) {
+      if (lote.estado !== "disponible") {
+        return res.status(400).json({
+          error: "Solo se puede transferir parcialmente un lote disponible"
+        });
+      }
+      if (cantidad > lote.cantidadDisponible) {
+        return res.status(400).json({
+          error: "La cantidad a transferir supera la disponible del lote"
+        });
+      }
+      esParcial = cantidad < lote.cantidadDisponible;
+    }
+
+    const loteResultado = esParcial
+      ? await moverLoteParcial(lote, cantidad, destino)
+      : await (async () => {
+          lote.laboratorioId = destino;
+          return lote.save();
+        })();
+
+    // DEVOLUCION si vuelve al depósito; TRANSFERENCIA en cualquier otro traslado.
+    const tipoMovimiento = destino === null ? "DEVOLUCION" : "TRANSFERENCIA";
+    // El agregado del item no cambia con un traslado de ubicación.
+    const stockActual = await stockFisicoItem(lote.itemId);
+
+    const observacionDefault = esParcial
+      ? (tipoMovimiento === "DEVOLUCION"
+          ? `Devolución parcial de ${cantidad} al depósito (desde lote ${lote._id})`
+          : `Transferencia parcial de ${cantidad} a laboratorio (desde lote ${lote._id})`)
+      : (tipoMovimiento === "DEVOLUCION"
+          ? "Devolución de lote al depósito"
+          : "Transferencia de lote a laboratorio");
+
+    await registrarMovimientoLote({
+      itemId: lote.itemId,
+      tipoMovimiento,
+      cantidad: 0,
+      cantidadAnterior: stockActual,
+      cantidadNueva: stockActual,
+      loteId: loteResultado._id,
+      origenLaboratorioId: origen,
+      destinoLaboratorioId: destino,
+      usuarioId: req.usuario?.id,
+      observacion: observacion ?? observacionDefault
+    });
+
+    return res.status(200).json(loteResultado);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+};
+
 // D: Eliminar un lote
 const deleteLote = async (req, res) => {
   try {
@@ -190,5 +364,6 @@ export {
   getLotes,
   getLoteById,
   updateLote,
+  transferirLote,
   deleteLote
 };

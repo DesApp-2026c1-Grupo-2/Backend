@@ -81,4 +81,44 @@ const pedidoSchemaJoi = Joi.object({
     "object.with": "Si proporciona 'fecha', también debe proporcionar 'hora'"
 });
 
+// Body de PATCH /pedidos/:id/finalizar. Todo opcional: se puede finalizar sin
+// reportar nada (consumibles se asumen consumidos al 100%, sin descartes).
+// `consumos` reporta el consumo real de consumibles para devolver el sobrante
+// (misma forma que finalizarReservaSchema). `descartes`/`desperfectos` alimentan
+// el registro de descartes y el envío de equipos a mantenimiento.
+const consumoFinalizacionJoi = Joi.object({
+    itemId: Joi.string().hex().length(24).required().messages({
+        "any.required": "itemId es obligatorio en cada consumo",
+        "string.hex": "itemId debe ser un ObjectId válido",
+        "string.length": "itemId debe ser un ObjectId válido",
+    }),
+    cantidadConsumida: Joi.number().min(0).required().messages({
+        "any.required": "cantidadConsumida es obligatoria",
+        "number.base": "cantidadConsumida debe ser un número",
+        "number.min": "cantidadConsumida no puede ser negativa",
+    }),
+});
+
+const descarteFinalizacionJoi = Joi.object({
+    tipo: Joi.string().optional(),
+    itemId: Joi.string().hex().length(24).optional(),
+    equipoId: Joi.string().hex().length(24).optional(),
+    cantidad: Joi.number().min(1).optional(),
+    motivo: Joi.string().optional(),
+});
+
+const desperfectoFinalizacionJoi = Joi.alternatives().try(
+    Joi.string().hex().length(24),
+    Joi.object({
+        equipoId: Joi.string().hex().length(24).required(),
+        motivo: Joi.string().optional(),
+    })
+);
+
+export const finalizarPedidoSchema = Joi.object({
+    descartes: Joi.array().items(descarteFinalizacionJoi).optional(),
+    desperfectos: Joi.array().items(desperfectoFinalizacionJoi).optional(),
+    consumos: Joi.array().items(consumoFinalizacionJoi).optional(),
+});
+
 export default pedidoSchemaJoi;

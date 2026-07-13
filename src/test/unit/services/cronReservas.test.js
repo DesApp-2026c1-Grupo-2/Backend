@@ -10,12 +10,13 @@ vi.mock('../../../services/aprobacionReserva.js', () => ({
 // Historial: se prueba aparte; aquí solo verificamos que el consumo lo invoque.
 vi.mock('../../../services/movimientoStock.service.js', () => ({
   registrarMovimiento: vi.fn().mockResolvedValue({}),
+  stockFisicoItem: vi.fn().mockResolvedValue(50),
 }));
 
 import Reserva from '../../../models/reserva.model.js';
 import Item from '../../../models/item.model.js';
 import Lote from '../../../models/lote.model.js';
-import { registrarMovimiento } from '../../../services/movimientoStock.service.js';
+import { registrarMovimiento, stockFisicoItem } from '../../../services/movimientoStock.service.js';
 import {
   ConflictoEjecucionError,
   promoverReservaAEnCurso,
@@ -27,6 +28,15 @@ import {
 const mockItemConsumible = (esConsumible) => {
   Item.findById.mockReturnValue({
     session: vi.fn().mockResolvedValue({ _id: 'i1', esConsumible }),
+  });
+};
+
+// Item.findById(id).select('esConsumible').session(session) => item (finalización)
+const mockItemSelect = (esConsumible) => {
+  Item.findById.mockReturnValue({
+    select: vi.fn().mockReturnValue({
+      session: vi.fn().mockResolvedValue({ _id: 'i1', esConsumible }),
+    }),
   });
 };
 
@@ -135,9 +145,10 @@ describe('promoverReservaAEnCurso (§6/§7/§8)', () => {
     );
   });
 
-  it('los reutilizables no ejecutan consumo físico', async () => {
+  it('los reutilizables también decrementan físico al iniciar (como consumibles)', async () => {
     const reserva = {
       _id: 'r1',
+      laboratorioId: 'lab1',
       materialesReservados: [
         { itemId: 'i1', cantidadTotal: 5, lotesUsados: [] },
       ],
@@ -145,12 +156,26 @@ describe('promoverReservaAEnCurso (§6/§7/§8)', () => {
     };
     Reserva.findOneAndUpdate.mockResolvedValue(reserva);
     mockItemConsumible(false); // reutilizable
+    mockLotes([{ _id: 'l1', cantidadDisponible: 10 }]);
 
     const resultado = await promoverReservaAEnCurso('r1');
 
     expect(resultado).toBe('En Curso');
-    expect(Lote.find).not.toHaveBeenCalled();
-    expect(Lote.updateOne).not.toHaveBeenCalled();
+    // Decremento físico FIFO (igual que un consumible).
+    expect(Lote.updateOne).toHaveBeenCalledWith(
+      { _id: 'l1' },
+      { $inc: { cantidadDisponible: -5 } },
+      {}
+    );
+    // Egreso de salida del reutilizable.
+    expect(registrarMovimiento).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'i1',
+        tipoMovimiento: 'APROBACION_RESERVA',
+        cantidad: -5,
+      }),
+      null
+    );
     expect(reserva.save).toHaveBeenCalled();
   });
 });
@@ -192,6 +217,57 @@ describe('finalizarReservasVencidas (§9)', () => {
     const finalizadas = await finalizarReservasVencidas();
 
     expect(finalizadas).toBe(0);
+    expect(registrarMovimiento).not.toHaveBeenCalled();
+  });
+
+  it('devuelve FÍSICAMENTE los reutilizables al finalizar (DEVOLUCION con cantidad > 0)', async () => {
+    mockReservaFind([{ _id: 'r1' }]);
+    // El claim devuelve la reserva completa (materiales + laboratorio).
+    Reserva.findOneAndUpdate.mockResolvedValue({
+      _id: 'r1',
+      laboratorioId: 'lab1',
+      materialesReservados: [{ itemId: 'i1', cantidadTotal: 2, lotesUsados: [{ loteId: 'l1', cantidad: 2 }] }],
+    });
+    mockItemSelect(false); // reutilizable
+    stockFisicoItem.mockResolvedValue(50);
+
+    const finalizadas = await finalizarReservasVencidas();
+
+    expect(finalizadas).toBe(1);
+    // Repone el lote de origen (ingreso físico real).
+    expect(Lote.updateOne).toHaveBeenCalledWith(
+      { _id: 'l1' },
+      { $inc: { cantidadDisponible: 2 } },
+      {}
+    );
+    // DEVOLUCION real (cantidad > 0), evento de sistema.
+    expect(registrarMovimiento).toHaveBeenCalledWith(
+      expect.objectContaining({
+        itemId: 'i1',
+        tipoMovimiento: 'DEVOLUCION',
+        cantidad: 2,
+        reservaId: 'r1',
+        origenLaboratorioId: 'lab1',
+      }),
+      null
+    );
+    // Evento de sistema: sin usuario asociado.
+    expect(registrarMovimiento.mock.calls[0][0]).not.toHaveProperty('usuarioId');
+  });
+
+  it('NO registra DEVOLUCION para materiales consumibles al finalizar', async () => {
+    mockReservaFind([{ _id: 'r1' }]);
+    Reserva.findOneAndUpdate.mockResolvedValue({
+      _id: 'r1',
+      laboratorioId: 'lab1',
+      materialesReservados: [{ itemId: 'i1', cantidadTotal: 2, lotesUsados: [{ loteId: 'l1', cantidad: 2 }] }],
+    });
+    mockItemSelect(true); // consumible: su egreso ya se registró al iniciar
+
+    const finalizadas = await finalizarReservasVencidas();
+
+    expect(finalizadas).toBe(1);
+    expect(registrarMovimiento).not.toHaveBeenCalled();
   });
 });
 

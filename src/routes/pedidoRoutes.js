@@ -3,7 +3,7 @@ const router = express.Router();
 import * as pedidoControllers from "../controllers/pedidoControllers.js";
 
 import { validate } from "../middlewares/validator.middleware.js";
-import pedidoSchemaJoi from "../schemas/pedidoSchema.js";
+import pedidoSchemaJoi, { finalizarPedidoSchema } from "../schemas/pedidoSchema.js";
 import { validarPedido, puedeEditarPedido } from "../middlewares/validatePedidos.js";
 import { validarJWT, validarRol } from "../middlewares/validateJWT.js";
 
@@ -21,7 +21,7 @@ router.put("/:id", validarJWT, puedeEditarPedido, validate(pedidoSchemaJoi), val
 // SOLO PERSONAL Y ADMIN PUEDEN CAMBIAR ESTADO, APROBAR O FINALIZAR
 router.patch("/:id/estado", validarJWT, validarRol("PERSONAL","ADMIN"), pedidoControllers.updateEstado);
 router.patch("/:id/aprobar", validarJWT, validarRol("PERSONAL","ADMIN"), pedidoControllers.aprobarPedido); // Ruta dedicada para aprobar y descontar stock
-router.patch("/:id/finalizar", validarJWT, validarRol("PERSONAL","ADMIN"), pedidoControllers.finalizarPedido); // Ruta para cerrar el pedido y liberar equipos
+router.patch("/:id/finalizar", validarJWT, validarRol("PERSONAL","ADMIN"), validate(finalizarPedidoSchema), pedidoControllers.finalizarPedido); // Ruta para cerrar el pedido y liberar equipos
 
 //updateChecklist
 router.patch("/:id/checklist", validarJWT, validarRol("PERSONAL","ADMIN"), pedidoControllers.updateChecklist);

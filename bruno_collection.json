@@ -280,7 +280,7 @@
             "header": [ { "key": "Content-Type", "value": "application/json" } ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"itemId\": \"{{item_id}}\",\n  \"cantidadDisponible\": 100,\n  \"ubicacion\": \"Estante B2\",\n  \"estado\": \"disponible\",\n  \"fechaVencimiento\": \"2028-12-31T00:00:00Z\"\n}"
+              "raw": "{\n  \"itemId\": \"{{item_id}}\",\n  \"cantidadDisponible\": 100,\n  \"estado\": \"disponible\",\n  \"fechaVencimiento\": \"2028-12-31T00:00:00Z\"\n}"
             },
             "url": { "raw": "{{base_url}}/lotes", "host": [ "{{base_url}}" ], "path": [ "lotes" ] }
           }

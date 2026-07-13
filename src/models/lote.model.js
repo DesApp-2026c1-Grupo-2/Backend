@@ -11,7 +11,17 @@ Es importante destacar que el lote es la unidad de gestión del stock y no el í
 const loteSchema = new mongoose.Schema({
   itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item', required: true },
   cantidadDisponible: { type: Number, required: true, min: 0 },
-  ubicacion: { type: String, required: true },
+  // Ubicación del lote: laboratorio donde está físicamente el stock.
+  // `null` = DEPÓSITO (valor por defecto). El eje de transferencias/devoluciones es
+  // depósito ↔ laboratorios (ver transferirLote en loteControllers.js).
+  // Nota: el agregado de stock (calcularStockDisponible/stockFisicoItem) es agnóstico a
+  // este campo — mover un lote de ubicación no cambia el stock disponible del item.
+  laboratorioId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Laboratorio',
+    default: null,
+    index: true
+  },
   estado: {
     type: String,
     enum: ['disponible', 'descartado'],

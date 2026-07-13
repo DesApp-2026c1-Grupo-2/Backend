@@ -12,6 +12,21 @@ vi.mock('../../../services/pedidoConflictos.js');
 vi.mock('../../../services/pedidoValidaciones.js');
 vi.mock('../../../services/descarte.service.js');
 
+// Finalización de pedido: forzamos el camino degradado (sin transacción) para no
+// depender de mongoose, preservando el resto de exports (aprobarConReserva, etc.,
+// que usa aprobarPedidoService).
+vi.mock('../../../services/aprobacionReserva.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  soportaTransacciones: vi.fn().mockResolvedValue(false),
+}));
+
+// Devolución de stock: aislamos el servicio compartido; su lógica fina se prueba
+// en devolucionReserva.test.js. Solo verificamos la delegación desde el pedido.
+vi.mock('../../../services/devolucionReserva.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  aplicarDevolucionesFinalizacion: vi.fn(),
+}));
+
 import Pedido from '../../../models/pedido.model.js';
 import Reserva from '../../../models/reserva.model.js';
 import Lote from '../../../models/lote.model.js';
@@ -22,6 +37,7 @@ import Descarte from '../../../models/descarte.model.js';
 import { verificarConflictos } from '../../../services/pedidoConflictos.js';
 import { validarAnticipacionPedido } from '../../../services/pedidoValidaciones.js';
 import { registrarDescarteService } from '../../../services/descarte.service.js';
+import { aplicarDevolucionesFinalizacion } from '../../../services/devolucionReserva.js';
 import {
   getPedidos,
   getPedidoById,
@@ -353,7 +369,7 @@ describe('pedidoControllers', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it('debe finalizar el pedido y la reserva asociada', async () => {
+    it('finaliza el pedido y asegura la reserva Finalizada aunque no estuviera En Curso (sin devolución)', async () => {
       const req = mockReq({ params: { id: 'p_1' } });
       const res = mockRes();
       const mockPedido = {
@@ -367,48 +383,73 @@ describe('pedidoControllers', () => {
       mockPedido.save.mockResolvedValue(mockPedido);
       mockPedido.populate.mockResolvedValue(mockPedido);
       Pedido.findById.mockResolvedValue(mockPedido);
+      Reserva.findOneAndUpdate.mockResolvedValue(null); // claim no matchea (no estaba En Curso)
 
       await finalizarPedido(req, res);
 
       expect(mockPedido.estado).toBe('Finalizado');
       expect(mockPedido.save).toHaveBeenCalled();
-      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith({ pedidoId: 'p_1' }, { estado: 'Finalizada' });
+      // Claim atómico En Curso → Finalizada (nueva firma).
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith(
+        { pedidoId: 'p_1', estado: 'En Curso' },
+        { $set: { estado: 'Finalizada' } },
+        { new: true }
+      );
+      // Fallback: aseguramos Finalizada sin devolver stock (no había decremento).
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith(
+        { pedidoId: 'p_1' },
+        { $set: { estado: 'Finalizada' } },
+        undefined
+      );
+      expect(aplicarDevolucionesFinalizacion).not.toHaveBeenCalled();
       expect(res.json).toHaveBeenCalled();
     });
 
-    it('no debe devolver stock al inventario en la finalización (modelo temporal)', async () => {
-      // Nuevo modelo (docs/stock-disponibilidad-temporal.md §10): la finalización
-      // no repone stock. Los reutilizables nunca decrementaron cantidadDisponible
-      // y los consumibles ya se consumieron; por lo tanto Lote.findByIdAndUpdate
-      // no debe invocarse.
-      const req = mockReq({ params: { id: 'p_1' } });
+    it('devuelve stock al finalizar cuando la reserva estaba En Curso (delega en aplicarDevolucionesFinalizacion)', async () => {
+      // Nuevo modelo (docs/stock-disponibilidad-temporal.md §10): al finalizar un
+      // pedido con reserva En Curso se reponen reutilizables (100%) y el sobrante
+      // de consumibles. La devolución la aplica el servicio compartido; acá solo
+      // verificamos la delegación con los consumos y el usuario.
+      const req = mockReq({
+        params: { id: 'p_1' },
+        body: { consumos: [{ itemId: 'item_1', cantidadConsumida: 7 }] },
+        usuario: { id: 'admin_1', rol: 'ADMIN' },
+      });
       const res = mockRes();
 
       const mockPedido = {
         _id: 'p_1',
         estado: 'Aceptado',
         historial: [],
-        recursos: [
-          {
-            tipoRecurso: 'Item',
-            recursoId: 'item_1',
-            cantidad: 10,
-          }
-        ],
+        recursos: [{ tipoRecurso: 'Item', recursoId: 'item_1', cantidad: 10 }],
         save: vi.fn(),
         populate: vi.fn(),
       };
       mockPedido.save.mockResolvedValue(mockPedido);
       mockPedido.populate.mockResolvedValue(mockPedido);
 
+      const reservaEnCurso = {
+        _id: 'r_1',
+        pedidoId: 'p_1',
+        materialesReservados: [{ itemId: 'item_1', lotesUsados: [{ loteId: 'l_1', cantidad: 10 }] }],
+        save: vi.fn().mockResolvedValue(true),
+      };
+
       Pedido.findById.mockResolvedValue(mockPedido);
-      Item.findById.mockResolvedValue({ _id: 'item_1', esConsumible: false });
+      Reserva.findOneAndUpdate.mockResolvedValue(reservaEnCurso); // claim OK
 
       await finalizarPedido(req, res);
 
       expect(mockPedido.estado).toBe('Finalizado');
-      expect(Lote.findByIdAndUpdate).not.toHaveBeenCalled();
-      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith({ pedidoId: 'p_1' }, { estado: 'Finalizada' });
+      expect(aplicarDevolucionesFinalizacion).toHaveBeenCalledWith(
+        reservaEnCurso,
+        expect.objectContaining({
+          consumos: [{ itemId: 'item_1', cantidadConsumida: 7 }],
+          usuarioId: 'admin_1',
+        })
+      );
+      expect(reservaEnCurso.save).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalled();
     });
 
     it('debe aceptar desperfectos de equipos con motivo en el payload de finalización', async () => {
@@ -435,7 +476,11 @@ describe('pedidoControllers', () => {
 
       await finalizarPedido(req, res);
 
-      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith({ pedidoId: 'p_1' }, { estado: 'Finalizada' });
+      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith(
+        { pedidoId: 'p_1', estado: 'En Curso' },
+        { $set: { estado: 'Finalizada' } },
+        { new: true }
+      );
       expect(res.json).toHaveBeenCalled();
     });
   });

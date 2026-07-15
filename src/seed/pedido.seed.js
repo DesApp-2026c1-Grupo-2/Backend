@@ -145,7 +145,85 @@ export const seedPedidos = async () => {
           { descripcion: "Acondicionar equipo reservado y verificar su funcionamiento.", tipo: "Logistica", estado: "Completada" },
           { descripcion: "Colocar materiales y equipos en los carritos destinados al aula.", tipo: "General", estado: "Completada" }
         ]
-      }
+      },
+      // 6. PENDIENTE — Bioquímica, próxima semana
+      {
+        materia: "Bioquímica I",
+        docente: docente._id,
+        fechaHora: enDias(5, 9),
+        duracionClase: 90,
+        laboratorio: labBioq._id,
+        alumnos: 18,
+        estado: "Pendiente",
+        recursos: [
+          { recursoId: it("MAT-002")._id, tipoRecurso: "Item", cantidad: 6 },
+          { recursoId: it("REA-001")._id, tipoRecurso: "Item", cantidad: 200 },
+        ],
+      },
+
+      // 7. PENDIENTE — sin laboratorio asignado
+      {
+        materia: "Física Experimental",
+        docente: docente._id,
+        fechaHora: enDias(6, 11),
+        duracionClase: 120,
+        laboratorio: null,
+        alumnos: 28,
+        estado: "Pendiente",
+        recursos: [
+          { recursoId: balMovil._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: it("MAT-001")._id, tipoRecurso: "Item", cantidad: 15 },
+        ],
+      },
+
+      // 8. RECHAZADO — capacidad insuficiente
+      {
+        materia: "Química Orgánica",
+        docente: docente._id,
+        fechaHora: enDias(-2, 10),
+        duracionClase: 120,
+        laboratorio: labQuimica._id,
+        alumnos: 35,
+        estado: "Rechazado",
+        recursos: [
+          { recursoId: it("REA-002")._id, tipoRecurso: "Item", cantidad: 150 },
+          { recursoId: it("SUS-002")._id, tipoRecurso: "Item", cantidad: 100 },
+        ],
+        detalleProblemas: [
+          "El laboratorio no tiene capacidad suficiente para la cantidad de alumnos solicitada."
+        ],
+      },
+
+      // 9. FINALIZADO — hace 3 días
+      {
+        materia: "Genética Molecular",
+        docente: docente._id,
+        fechaHora: enDias(-3, 14),
+        duracionClase: 150,
+        laboratorio: labGeneral._id,
+        alumnos: 20,
+        estado: "Finalizado",
+        recursos: [
+          { recursoId: micMovil._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: it("MAT-003")._id, tipoRecurso: "Item", cantidad: 40 },
+          { recursoId: it("SUS-001")._id, tipoRecurso: "Item", cantidad: 500 },
+        ],
+      },
+
+      // 10. PENDIENTE — aparece en página 2, demuestra la paginación
+      {
+        materia: "Microbiología Clínica",
+        docente: docente._id,
+        fechaHora: enDias(8, 10),
+        duracionClase: 90,
+        laboratorio: labBioq._id,
+        alumnos: 22,
+        estado: "Pendiente",
+        recursos: [
+          { recursoId: it("REA-003")._id, tipoRecurso: "Item", cantidad: 100 },
+          { recursoId: it("MAT-004")._id, tipoRecurso: "Item", cantidad: 8 },
+        ],
+      },
     ];
 
     await Pedido.insertMany(pedidosPrueba);

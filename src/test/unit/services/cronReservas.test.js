@@ -196,9 +196,19 @@ describe('finalizarReservasVencidas (§9)', () => {
     vi.clearAllMocks();
   });
 
+  // La reserva que devuelve el claim se persiste al final (para guardar las marcas
+  // de liquidación), así que los mocks necesitan `save`.
+  const reservaClaim = (overrides = {}) => ({
+    _id: 'r1',
+    laboratorioId: 'lab1',
+    materialesReservados: [],
+    save: vi.fn().mockResolvedValue(true),
+    ...overrides,
+  });
+
   it('finaliza con claim atómico las reservas En Curso vencidas', async () => {
     mockReservaFind([{ _id: 'r1' }, { _id: 'r2' }]);
-    Reserva.findOneAndUpdate.mockResolvedValue({ _id: 'r1' }); // claim OK
+    Reserva.findOneAndUpdate.mockResolvedValue(reservaClaim()); // claim OK
 
     const finalizadas = await finalizarReservasVencidas();
 
@@ -223,17 +233,20 @@ describe('finalizarReservasVencidas (§9)', () => {
   it('devuelve FÍSICAMENTE los reutilizables al finalizar (DEVOLUCION con cantidad > 0)', async () => {
     mockReservaFind([{ _id: 'r1' }]);
     // El claim devuelve la reserva completa (materiales + laboratorio).
-    Reserva.findOneAndUpdate.mockResolvedValue({
-      _id: 'r1',
-      laboratorioId: 'lab1',
-      materialesReservados: [{ itemId: 'i1', cantidadTotal: 2, consumoEjecutado: true, lotesUsados: [{ loteId: 'l1', cantidad: 2 }] }],
-    });
+    const material = { itemId: 'i1', cantidadTotal: 2, consumoEjecutado: true, lotesUsados: [{ loteId: 'l1', cantidad: 2 }] };
+    const reserva = reservaClaim({ materialesReservados: [material] });
+    Reserva.findOneAndUpdate.mockResolvedValue(reserva);
     mockItemSelect(false); // reutilizable
     stockFisicoItem.mockResolvedValue(50);
 
     const finalizadas = await finalizarReservasVencidas();
 
     expect(finalizadas).toBe(1);
+    // Queda saldado y sin nada afuera: es lo que impide que una finalización
+    // manual posterior lo devuelva por segunda vez.
+    expect(material.liquidado).toBe(true);
+    expect(material.lotesUsados).toEqual([]);
+    expect(reserva.save).toHaveBeenCalled();
     // Repone el lote de origen (ingreso físico real).
     expect(Lote.updateOne).toHaveBeenCalledWith(
       { _id: 'l1' },
@@ -255,18 +268,32 @@ describe('finalizarReservasVencidas (§9)', () => {
     expect(registrarMovimiento.mock.calls[0][0]).not.toHaveProperty('usuarioId');
   });
 
-  it('NO registra DEVOLUCION para materiales consumibles al finalizar', async () => {
+  it('NO registra DEVOLUCION para materiales consumibles al finalizar y los deja sin liquidar', async () => {
     mockReservaFind([{ _id: 'r1' }]);
-    Reserva.findOneAndUpdate.mockResolvedValue({
-      _id: 'r1',
-      laboratorioId: 'lab1',
-      materialesReservados: [{ itemId: 'i1', cantidadTotal: 2, lotesUsados: [{ loteId: 'l1', cantidad: 2 }] }],
-    });
+    const material = { itemId: 'i1', cantidadTotal: 2, consumoEjecutado: true, lotesUsados: [{ loteId: 'l1', cantidad: 2 }] };
+    Reserva.findOneAndUpdate.mockResolvedValue(reservaClaim({ materialesReservados: [material] }));
     mockItemSelect(true); // consumible: su egreso ya se registró al iniciar
 
     const finalizadas = await finalizarReservasVencidas();
 
     expect(finalizadas).toBe(1);
+    expect(registrarMovimiento).not.toHaveBeenCalled();
+    // Deliberado: el sobrante solo se puede calcular con el consumo real
+    // reportado, así que queda pendiente para la finalización del pedido.
+    expect(material.liquidado).toBeFalsy();
+    expect(material.lotesUsados).toEqual([{ loteId: 'l1', cantidad: 2 }]);
+  });
+
+  it('no vuelve a devolver un reutilizable ya liquidado', async () => {
+    mockReservaFind([{ _id: 'r1' }]);
+    const material = { itemId: 'i1', cantidadTotal: 2, consumoEjecutado: true, liquidado: true, lotesUsados: [] };
+    Reserva.findOneAndUpdate.mockResolvedValue(reservaClaim({ materialesReservados: [material] }));
+    mockItemSelect(false); // reutilizable
+
+    const finalizadas = await finalizarReservasVencidas();
+
+    expect(finalizadas).toBe(1);
+    expect(Lote.updateOne).not.toHaveBeenCalled();
     expect(registrarMovimiento).not.toHaveBeenCalled();
   });
 });

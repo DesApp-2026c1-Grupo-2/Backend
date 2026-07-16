@@ -15,6 +15,17 @@ router.get("/finalizadas", validarJWT, reservaControllers.getReservasFinalizadas
 // GET: Obtener reservas activas filtradas por un laboratorio específico
 router.get("/laboratorio/:laboratorioId", validarJWT, reservaControllers.getReservasActivasPorLaboratorio);
 
+// GET: reserva asociada a un pedido, con el detalle de qué consumibles hay que
+// reportar al finalizarlo (alimenta el diálogo de finalización del front). Mismo
+// rol que PATCH /pedidos/:id/finalizar, que es la acción que habilita.
+// Va antes que cualquier ruta "/:id" para que no la capture.
+router.get(
+  "/pedido/:pedidoId",
+  validarJWT,
+  validarRol("PERSONAL", "ADMIN"),
+  reservaControllers.getReservaPorPedido
+);
+
 // PATCH: Cancelar una reserva y liberar sus recursos (equipos y stock)
 router.patch("/:id/cancelar", validarJWT, reservaControllers.cancelarReserva);
 

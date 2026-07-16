@@ -33,7 +33,10 @@ vi.mock('../../../services/aprobacionReserva.js', () => ({
 
 // Devolución de stock: servicio compartido, se mockea para aislar el controller
 // (su lógica de $inc + DEVOLUCION se prueba en devolucionReserva/movimientoStock).
-vi.mock('../../../services/devolucionReserva.js', () => ({
+// `requiereConsumoReportado` se preserva del original: es una función pura y es el
+// predicado que getReservaPorPedido debe exponer tal cual lo aplica el gate.
+vi.mock('../../../services/devolucionReserva.js', async (importOriginal) => ({
+  ...(await importOriginal()),
   devolverYRegistrar: vi.fn().mockResolvedValue([]),
   aplicarDevolucionesFinalizacion: vi.fn(),
   validarConsumosRequeridos: vi.fn(),
@@ -47,6 +50,7 @@ import {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
   getReservasFinalizadas,
+  getReservaPorPedido,
   cancelarReserva,
   finalizarReserva
 } from '../../../controllers/reservaControllers.js';
@@ -83,6 +87,112 @@ describe('reservaControllers', () => {
         estado: { $in: ['Pendiente', 'En Curso'] }
       });
       expect(res.json).toHaveBeenCalled();
+    });
+  });
+
+  describe('getReservaPorPedido', () => {
+    // Le dice al front qué consumibles pedir antes de finalizar el pedido. El
+    // `requiereConsumo` que expone sale de la misma función que usa el gate del
+    // backend, así que estos tests fijan que ambos vean lo mismo en las tres
+    // ventanas por las que pasa una reserva.
+    const material = (overrides = {}) => ({
+      itemId: { _id: 'item_1', nombre: 'Agua Destilada', esConsumible: true },
+      cantidadTotal: 10,
+      consumoEjecutado: true,
+      liquidado: false,
+      lotesUsados: [{ loteId: 'l_1', cantidad: 10 }],
+      ...overrides,
+    });
+
+    const mockReserva = (reserva) =>
+      Reserva.findOne.mockReturnValue({
+        populate: vi.fn().mockResolvedValue(reserva),
+      });
+
+    it('devuelve 404 si el pedido no tiene reserva asociada', async () => {
+      const req = mockReq({ params: { pedidoId: 'p_1' } });
+      const res = mockRes();
+      mockReserva(null);
+
+      await getReservaPorPedido(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+    });
+
+    it('ventana 2/3: marca requiereConsumo en el consumible con stock afuera sin liquidar', async () => {
+      const req = mockReq({ params: { pedidoId: 'p_1' } });
+      const res = mockRes();
+      mockReserva({ _id: 'r_1', pedidoId: 'p_1', estado: 'En Curso', materialesReservados: [material()] });
+
+      await getReservaPorPedido(req, res);
+
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        reservaId: 'r_1',
+        estado: 'En Curso',
+        requiereReporteConsumo: true,
+        materialesReservados: [expect.objectContaining({
+          itemId: 'item_1',
+          nombre: 'Agua Destilada',
+          esConsumible: true,
+          requiereConsumo: true,
+          cantidadPendiente: 10, // tope de lo reportable
+        })],
+      }));
+    });
+
+    it('ventana 1: no pide reporte si el stock todavía no salió', async () => {
+      const req = mockReq({ params: { pedidoId: 'p_1' } });
+      const res = mockRes();
+      mockReserva({
+        _id: 'r_1', pedidoId: 'p_1', estado: 'Pendiente',
+        materialesReservados: [material({ consumoEjecutado: false })],
+      });
+
+      await getReservaPorPedido(req, res);
+
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        requiereReporteConsumo: false,
+        materialesReservados: [expect.objectContaining({ requiereConsumo: false })],
+      }));
+    });
+
+    it('no pide reporte de materiales ya liquidados ni de reutilizables', async () => {
+      const req = mockReq({ params: { pedidoId: 'p_1' } });
+      const res = mockRes();
+      mockReserva({
+        _id: 'r_1', pedidoId: 'p_1', estado: 'Finalizada',
+        materialesReservados: [
+          material({ liquidado: true, lotesUsados: [] }),
+          material({ itemId: { _id: 'item_2', nombre: 'Vaso', esConsumible: false } }),
+        ],
+      });
+
+      await getReservaPorPedido(req, res);
+
+      const payload = res.json.mock.calls[0][0];
+      expect(payload.requiereReporteConsumo).toBe(false);
+      expect(payload.materialesReservados.map((m) => m.requiereConsumo)).toEqual([false, false]);
+    });
+
+    it('no rompe si el item fue borrado (queda el ObjectId sin popular)', async () => {
+      const req = mockReq({ params: { pedidoId: 'p_1' } });
+      const res = mockRes();
+      mockReserva({
+        _id: 'r_1', pedidoId: 'p_1', estado: 'En Curso',
+        materialesReservados: [material({ itemId: 'item_borrado' })],
+      });
+
+      await getReservaPorPedido(req, res);
+
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        requiereReporteConsumo: false,
+        materialesReservados: [expect.objectContaining({
+          itemId: 'item_borrado',
+          nombre: 'item_borrado',
+          esConsumible: null,
+          requiereConsumo: false,
+        })],
+      }));
     });
   });
 

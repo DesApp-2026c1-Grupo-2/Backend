@@ -22,6 +22,7 @@ import {
   aplicarDevolucionesFinalizacion,
   validarConsumosRequeridos,
   validarDescartesReutilizables,
+  requiereConsumoReportado,
 } from '../../../services/devolucionReserva.js';
 
 // Item.findById(id).select(...).session(session) → item indicado.
@@ -62,9 +63,12 @@ describe('aplicarDevolucionesFinalizacion', () => {
     expect(material.cantidadConsumidaReal).toBe(7);
     // lotesUsados queda con lo realmente consumido.
     expect(material.lotesUsados).toEqual([{ loteId: 'lote_1', cantidad: 7 }]);
+    expect(material.liquidado).toBe(true);
   });
 
-  it('consumible sin reporte (default interno): consumo total, no devuelve nada', async () => {
+  it('fallback defensivo: sin reporte asume consumo total y no devuelve nada', async () => {
+    // Camino inalcanzable vía HTTP (el gate exige el reporte), pero si un caller
+    // esquivara el gate, asumir "se consumió todo" no repone nada: no infla stock.
     mockItem(true); // consumible
     const material = { itemId: 'item_1', consumoEjecutado: true, lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
     const reserva = reservaCon(material);
@@ -75,6 +79,7 @@ describe('aplicarDevolucionesFinalizacion', () => {
     expect(registrarMovimiento).not.toHaveBeenCalled();
     expect(material.cantidadConsumidaReal).toBe(10);
     expect(material.lotesUsados).toEqual([{ loteId: 'lote_1', cantidad: 10 }]);
+    expect(material.liquidado).toBe(true);
   });
 
   it('reutilizable: devuelve el 100% de lo decrementado e ignora consumos', async () => {
@@ -98,6 +103,7 @@ describe('aplicarDevolucionesFinalizacion', () => {
     expect(material.cantidadConsumidaReal).toBeUndefined();
     // Se devolvió todo → lotesUsados queda vacío.
     expect(material.lotesUsados).toEqual([]);
+    expect(material.liquidado).toBe(true);
   });
 
   it('reparte la devolución en orden inverso al FIFO cuando hay varios lotes', async () => {
@@ -122,6 +128,7 @@ describe('aplicarDevolucionesFinalizacion', () => {
     expect(material.cantidadConsumidaReal).toBe(3);
     // Consumido = lote_1: 5 − 2 = 3; lote_2 se devolvió entero (queda fuera).
     expect(material.lotesUsados).toEqual([{ loteId: 'lote_1', cantidad: 3 }]);
+    expect(material.liquidado).toBe(true);
   });
 
   it('consumoEjecutado=false: NO devuelve nada (evita stock fantasma) y marca consumo 0', async () => {
@@ -139,6 +146,7 @@ describe('aplicarDevolucionesFinalizacion', () => {
     expect(registrarMovimiento).not.toHaveBeenCalled();
     expect(Item.findById).not.toHaveBeenCalled();
     expect(material.cantidadConsumidaReal).toBe(0);
+    expect(material.liquidado).toBe(true);
   });
 
   it('material con consumoEjecutado pero lotesUsados vacío se saltea sin registrar movimiento', async () => {
@@ -151,6 +159,114 @@ describe('aplicarDevolucionesFinalizacion', () => {
     expect(Lote.updateOne).not.toHaveBeenCalled();
     expect(registrarMovimiento).not.toHaveBeenCalled();
     expect(material.cantidadConsumidaReal).toBeUndefined();
+    expect(material.liquidado).toBe(true);
+  });
+
+  it('material ya liquidado: no toca sus lotes ni registra movimiento', async () => {
+    // Guarda contra la doble devolución: el cron ya saldó este material.
+    const material = {
+      itemId: 'item_2',
+      consumoEjecutado: true,
+      liquidado: true,
+      lotesUsados: [{ loteId: 'lote_2', cantidad: 4 }],
+    };
+    const reserva = reservaCon(material);
+
+    await aplicarDevolucionesFinalizacion(reserva, { consumos: [], usuarioId: 'u1' });
+
+    expect(Lote.updateOne).not.toHaveBeenCalled();
+    expect(registrarMovimiento).not.toHaveBeenCalled();
+    expect(Item.findById).not.toHaveBeenCalled();
+    expect(material.lotesUsados).toEqual([{ loteId: 'lote_2', cantidad: 4 }]);
+  });
+
+  it('reserva ya cerrada por el cron: recupera el sobrante del consumible sin re-devolver el reutilizable', async () => {
+    // El escenario que motivó el cambio (ventana 3). El cron devolvió el
+    // reutilizable y lo marcó; el consumible quedó pendiente de reporte.
+    Item.findById.mockImplementation((id) => ({
+      select: vi.fn().mockReturnValue({
+        session: vi.fn().mockResolvedValue(
+          id === 'item_1'
+            ? { esConsumible: true, nombre: 'Agua Destilada' }
+            : { esConsumible: false, nombre: 'Vaso' }
+        ),
+      }),
+    }));
+
+    const consumible = {
+      itemId: 'item_1',
+      consumoEjecutado: true,
+      liquidado: false,
+      lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }],
+    };
+    const reutilizableYaDevuelto = {
+      itemId: 'item_2',
+      consumoEjecutado: true,
+      liquidado: true,
+      lotesUsados: [], // el cron lo vació al devolver el 100%
+    };
+    const reserva = { _id: 'r_1', laboratorioId: 'lab_1', materialesReservados: [consumible, reutilizableYaDevuelto] };
+
+    await aplicarDevolucionesFinalizacion(reserva, {
+      consumos: [{ itemId: 'item_1', cantidadConsumida: 7 }],
+      usuarioId: 'u1',
+    });
+
+    // Solo vuelve el sobrante del consumible: 10 − 7 = 3.
+    expect(Lote.updateOne).toHaveBeenCalledTimes(1);
+    expect(Lote.updateOne).toHaveBeenCalledWith(
+      { _id: 'lote_1' }, { $inc: { cantidadDisponible: 3 } }, {}
+    );
+    expect(registrarMovimiento).toHaveBeenCalledTimes(1);
+    expect(consumible.cantidadConsumidaReal).toBe(7);
+    expect(consumible.liquidado).toBe(true);
+  });
+
+  it('es idempotente: una segunda corrida no devuelve nada', async () => {
+    mockItem(true); // consumible
+    const material = { itemId: 'item_1', consumoEjecutado: true, lotesUsados: [{ loteId: 'lote_1', cantidad: 10 }] };
+    const reserva = reservaCon(material);
+    const consumos = [{ itemId: 'item_1', cantidadConsumida: 7 }];
+
+    await aplicarDevolucionesFinalizacion(reserva, { consumos, usuarioId: 'u1' });
+    expect(Lote.updateOne).toHaveBeenCalledTimes(1);
+
+    vi.clearAllMocks();
+    mockItem(true);
+
+    await aplicarDevolucionesFinalizacion(reserva, { consumos, usuarioId: 'u1' });
+
+    expect(Lote.updateOne).not.toHaveBeenCalled();
+    expect(registrarMovimiento).not.toHaveBeenCalled();
+    expect(material.lotesUsados).toEqual([{ loteId: 'lote_1', cantidad: 7 }]);
+  });
+});
+
+describe('requiereConsumoReportado', () => {
+  const consumible = { esConsumible: true };
+  const reutilizable = { esConsumible: false };
+
+  it('exige solo al consumible con stock afuera sin liquidar (ventana 2 y 3)', () => {
+    expect(requiereConsumoReportado(
+      { consumoEjecutado: true, liquidado: false }, consumible
+    )).toBe(true);
+  });
+
+  it('no exige si el stock todavía no salió (ventana 1)', () => {
+    expect(requiereConsumoReportado(
+      { consumoEjecutado: false, liquidado: false }, consumible
+    )).toBe(false);
+  });
+
+  it('no exige si ya está liquidado', () => {
+    expect(requiereConsumoReportado(
+      { consumoEjecutado: true, liquidado: true }, consumible
+    )).toBe(false);
+  });
+
+  it('no exige a los reutilizables ni cuando falta el item', () => {
+    expect(requiereConsumoReportado({ consumoEjecutado: true, liquidado: false }, reutilizable)).toBe(false);
+    expect(requiereConsumoReportado({ consumoEjecutado: true, liquidado: false }, null)).toBe(false);
   });
 });
 
@@ -187,6 +303,35 @@ describe('validarConsumosRequeridos', () => {
 
     await expect(validarConsumosRequeridos(reserva, [])).resolves.toBeUndefined();
     expect(Item.findById).not.toHaveBeenCalled();
+  });
+
+  it('no exige consumo a un material ya liquidado', async () => {
+    // El cron o una finalización previa ya lo saldó: no hay nada que reportar.
+    const reserva = reservaCon({
+      itemId: 'item_1',
+      consumoEjecutado: true,
+      liquidado: true,
+      lotesUsados: [{ loteId: 'l', cantidad: 1000 }],
+    });
+
+    await expect(validarConsumosRequeridos(reserva, [])).resolves.toBeUndefined();
+    expect(Item.findById).not.toHaveBeenCalled();
+  });
+
+  it('no acepta NaN como consumo reportado', async () => {
+    mockItem(true, 'Agua Destilada');
+    const reserva = reservaCon({ itemId: 'item_1', consumoEjecutado: true, lotesUsados: [{ loteId: 'l', cantidad: 1000 }] });
+
+    await expect(
+      validarConsumosRequeridos(reserva, [{ itemId: 'item_1', cantidadConsumida: NaN }])
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('el 400 lista los consumibles faltantes por nombre', async () => {
+    mockItem(true, 'Agua Destilada');
+    const reserva = reservaCon({ itemId: 'item_1', consumoEjecutado: true, lotesUsados: [{ loteId: 'l', cantidad: 1000 }] });
+
+    await expect(validarConsumosRequeridos(reserva, [])).rejects.toThrow(/Agua Destilada/);
   });
 });
 

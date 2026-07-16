@@ -359,6 +359,52 @@ describe('pedidoControllers', () => {
   });
 
   describe('finalizarPedido', () => {
+    // La exigencia de reportar el consumo NO depende del estado de la reserva (lo
+    // mueve un cron cada minuto), sino de si salió stock físico que siga sin
+    // liquidar. Estos tests fijan las tres ventanas por las que pasa una reserva.
+    // `validarConsumosRequeridos` corre de verdad (el mock del módulo preserva el
+    // original), así que el gate se ejercita end-to-end.
+
+    const pedidoAceptado = () => {
+      const mockPedido = {
+        _id: 'p_1',
+        estado: 'Aceptado',
+        historial: [],
+        recursos: [{ tipoRecurso: 'Item', recursoId: 'item_1', cantidad: 10 }],
+        detalleProblemas: [],
+        save: vi.fn(),
+        populate: vi.fn(),
+      };
+      mockPedido.save.mockResolvedValue(mockPedido);
+      mockPedido.populate.mockResolvedValue(mockPedido);
+      return mockPedido;
+    };
+
+    // Reserva con un consumible cuyo stock ya salió (consumoEjecutado) y sigue sin
+    // liquidar: el escenario que exige el consumo reportado.
+    const reservaConConsumibleSinLiquidar = (estado) => ({
+      _id: 'r_1',
+      pedidoId: 'p_1',
+      estado,
+      materialesReservados: [{
+        itemId: 'item_1',
+        cantidadTotal: 10,
+        consumoEjecutado: true,
+        liquidado: false,
+        lotesUsados: [{ loteId: 'l_1', cantidad: 10 }],
+      }],
+      save: vi.fn().mockResolvedValue(true),
+    });
+
+    // El gate resuelve esConsumible con Item.findById(...).select(...).session(...)
+    const mockItemConsumible = (esConsumible = true) => {
+      Item.findById.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          session: vi.fn().mockResolvedValue({ esConsumible, nombre: 'Agua Destilada' }),
+        }),
+      });
+    };
+
     it('debe retornar 400 si el pedido no está Aceptado', async () => {
       const req = mockReq({ params: { id: 'p_1' } });
       const res = mockRes();
@@ -369,86 +415,176 @@ describe('pedidoControllers', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it('finaliza el pedido y asegura la reserva Finalizada aunque no estuviera En Curso (sin devolución)', async () => {
+    it('ventana 1 (reserva Pendiente, sin descuento físico): finaliza sin exigir consumos', async () => {
+      // Nada salió del inventario todavía, no hay nada que reportar ni que devolver.
       const req = mockReq({ params: { id: 'p_1' } });
       const res = mockRes();
-      const mockPedido = {
-        _id: 'p_1',
-        estado: 'Aceptado',
-        historial: [],
-        recursos: [],
-        save: vi.fn(),
-        populate: vi.fn(),
+      const mockPedido = pedidoAceptado();
+      const reserva = {
+        _id: 'r_1',
+        pedidoId: 'p_1',
+        estado: 'Pendiente',
+        materialesReservados: [{
+          itemId: 'item_1',
+          consumoEjecutado: false,
+          liquidado: false,
+          lotesUsados: [{ loteId: 'l_1', cantidad: 10 }],
+        }],
+        save: vi.fn().mockResolvedValue(true),
       };
-      mockPedido.save.mockResolvedValue(mockPedido);
-      mockPedido.populate.mockResolvedValue(mockPedido);
       Pedido.findById.mockResolvedValue(mockPedido);
-      Reserva.findOneAndUpdate.mockResolvedValue(null); // claim no matchea (no estaba En Curso)
+      Reserva.findOne.mockResolvedValue(reserva);
 
       await finalizarPedido(req, res);
 
+      expect(res.status).not.toHaveBeenCalledWith(400);
       expect(mockPedido.estado).toBe('Finalizado');
-      expect(mockPedido.save).toHaveBeenCalled();
-      // Claim atómico En Curso → Finalizada (nueva firma).
-      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith(
-        { pedidoId: 'p_1', estado: 'En Curso' },
-        { $set: { estado: 'Finalizada' } },
-        { new: true }
-      );
-      // Fallback: aseguramos Finalizada sin devolver stock (no había decremento).
-      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith(
-        { pedidoId: 'p_1' },
-        { $set: { estado: 'Finalizada' } },
-        undefined
-      );
-      expect(aplicarDevolucionesFinalizacion).not.toHaveBeenCalled();
+      expect(reserva.estado).toBe('Finalizada');
+      // Sin `consumoEjecutado` el gate ni siquiera consulta el Item.
+      expect(Item.findById).not.toHaveBeenCalled();
       expect(res.json).toHaveBeenCalled();
     });
 
-    it('devuelve stock al finalizar cuando la reserva estaba En Curso (delega en aplicarDevolucionesFinalizacion)', async () => {
-      // Nuevo modelo (docs/stock-disponibilidad-temporal.md §10): al finalizar un
-      // pedido con reserva En Curso se reponen reutilizables (100%) y el sobrante
-      // de consumibles. La devolución la aplica el servicio compartido; acá solo
-      // verificamos la delegación con los consumos y el usuario.
+    it('ventana 2 (reserva En Curso): 400 si no se reporta el consumo, sin efectos colaterales', async () => {
+      const req = mockReq({
+        params: { id: 'p_1' },
+        body: { descartes: [{ tipo: 'material', itemId: 'item_9', cantidad: 1 }] },
+      });
+      const res = mockRes();
+      const mockPedido = pedidoAceptado();
+      Pedido.findById.mockResolvedValue(mockPedido);
+      Reserva.findOne.mockResolvedValue(reservaConConsumibleSinLiquidar('En Curso'));
+      mockItemConsumible();
+
+      await finalizarPedido(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: expect.stringContaining('Agua Destilada'),
+      });
+      // Fail-fast: el gate corre antes de registrar descartes o tocar el pedido.
+      expect(registrarDescarteService).not.toHaveBeenCalled();
+      expect(aplicarDevolucionesFinalizacion).not.toHaveBeenCalled();
+      expect(mockPedido.estado).toBe('Aceptado');
+    });
+
+    it('ventana 2 (reserva En Curso): con consumos reportados finaliza y delega la devolución', async () => {
       const req = mockReq({
         params: { id: 'p_1' },
         body: { consumos: [{ itemId: 'item_1', cantidadConsumida: 7 }] },
-        usuario: { id: 'admin_1', rol: 'ADMIN' },
       });
       const res = mockRes();
-
-      const mockPedido = {
-        _id: 'p_1',
-        estado: 'Aceptado',
-        historial: [],
-        recursos: [{ tipoRecurso: 'Item', recursoId: 'item_1', cantidad: 10 }],
-        save: vi.fn(),
-        populate: vi.fn(),
-      };
-      mockPedido.save.mockResolvedValue(mockPedido);
-      mockPedido.populate.mockResolvedValue(mockPedido);
-
-      const reservaEnCurso = {
-        _id: 'r_1',
-        pedidoId: 'p_1',
-        materialesReservados: [{ itemId: 'item_1', lotesUsados: [{ loteId: 'l_1', cantidad: 10 }] }],
-        save: vi.fn().mockResolvedValue(true),
-      };
-
+      const mockPedido = pedidoAceptado();
+      const reserva = reservaConConsumibleSinLiquidar('En Curso');
       Pedido.findById.mockResolvedValue(mockPedido);
-      Reserva.findOneAndUpdate.mockResolvedValue(reservaEnCurso); // claim OK
+      Reserva.findOne.mockResolvedValue(reserva);
+      mockItemConsumible();
 
       await finalizarPedido(req, res);
 
       expect(mockPedido.estado).toBe('Finalizado');
       expect(aplicarDevolucionesFinalizacion).toHaveBeenCalledWith(
-        reservaEnCurso,
+        reserva,
         expect.objectContaining({
           consumos: [{ itemId: 'item_1', cantidadConsumida: 7 }],
           usuarioId: 'admin_1',
         })
       );
-      expect(reservaEnCurso.save).toHaveBeenCalled();
+      expect(reserva.estado).toBe('Finalizada');
+      expect(reserva.save).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalled();
+    });
+
+    it('ventana 3 (el cron ya la finalizó): sigue exigiendo el consumo del consumible sin liquidar', async () => {
+      // Regresión: antes el claim filtraba por estado 'En Curso', así que finalizar
+      // acá devolvía 200 en silencio y el sobrante nunca volvía al inventario.
+      const req = mockReq({ params: { id: 'p_1' } });
+      const res = mockRes();
+      Pedido.findById.mockResolvedValue(pedidoAceptado());
+      Reserva.findOne.mockResolvedValue(reservaConConsumibleSinLiquidar('Finalizada'));
+      mockItemConsumible();
+
+      await finalizarPedido(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: expect.stringContaining('Agua Destilada'),
+      });
+    });
+
+    it('ventana 3 (el cron ya la finalizó): con consumos reportados recupera el sobrante', async () => {
+      const req = mockReq({
+        params: { id: 'p_1' },
+        body: { consumos: [{ itemId: 'item_1', cantidadConsumida: 7 }] },
+      });
+      const res = mockRes();
+      const mockPedido = pedidoAceptado();
+      const reserva = reservaConConsumibleSinLiquidar('Finalizada');
+      Pedido.findById.mockResolvedValue(mockPedido);
+      Reserva.findOne.mockResolvedValue(reserva);
+      mockItemConsumible();
+
+      await finalizarPedido(req, res);
+
+      expect(mockPedido.estado).toBe('Finalizado');
+      // La liquidación corre igual sobre una reserva ya Finalizada por el cron.
+      expect(aplicarDevolucionesFinalizacion).toHaveBeenCalledWith(
+        reserva,
+        expect.objectContaining({ consumos: [{ itemId: 'item_1', cantidadConsumida: 7 }] })
+      );
+      expect(reserva.save).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalled();
+    });
+
+    it('no exige consumo ni devuelve si el material ya está liquidado', async () => {
+      const req = mockReq({ params: { id: 'p_1' } });
+      const res = mockRes();
+      const mockPedido = pedidoAceptado();
+      const reserva = reservaConConsumibleSinLiquidar('Finalizada');
+      reserva.materialesReservados[0].liquidado = true;
+      Pedido.findById.mockResolvedValue(mockPedido);
+      Reserva.findOne.mockResolvedValue(reserva);
+
+      await finalizarPedido(req, res);
+
+      expect(res.status).not.toHaveBeenCalledWith(400);
+      expect(mockPedido.estado).toBe('Finalizado');
+      expect(Item.findById).not.toHaveBeenCalled();
+    });
+
+    it('no toca una reserva Cancelada (su stock ya fue repuesto)', async () => {
+      const req = mockReq({ params: { id: 'p_1' } });
+      const res = mockRes();
+      const mockPedido = pedidoAceptado();
+      const reserva = {
+        _id: 'r_1',
+        pedidoId: 'p_1',
+        estado: 'Cancelada',
+        materialesReservados: [],
+        save: vi.fn().mockResolvedValue(true),
+      };
+      Pedido.findById.mockResolvedValue(mockPedido);
+      Reserva.findOne.mockResolvedValue(reserva);
+
+      await finalizarPedido(req, res);
+
+      expect(mockPedido.estado).toBe('Finalizado');
+      expect(reserva.estado).toBe('Cancelada'); // no se pisa
+      expect(aplicarDevolucionesFinalizacion).not.toHaveBeenCalled();
+      expect(reserva.save).not.toHaveBeenCalled();
+    });
+
+    it('finaliza un pedido sin reserva asociada', async () => {
+      const req = mockReq({ params: { id: 'p_1' } });
+      const res = mockRes();
+      const mockPedido = pedidoAceptado();
+      Pedido.findById.mockResolvedValue(mockPedido);
+      Reserva.findOne.mockResolvedValue(null);
+
+      await finalizarPedido(req, res);
+
+      expect(mockPedido.estado).toBe('Finalizado');
+      expect(aplicarDevolucionesFinalizacion).not.toHaveBeenCalled();
       expect(res.json).toHaveBeenCalled();
     });
 
@@ -459,27 +595,17 @@ describe('pedidoControllers', () => {
           descartes: [],
           desperfectos: [{ equipoId: 'eq_1', motivo: 'Roto por uso' }],
         },
-        usuario: { id: 'admin_1', rol: 'ADMIN' },
       });
       const res = mockRes();
-      const mockPedido = {
-        _id: 'p_1',
-        estado: 'Aceptado',
-        historial: [],
-        recursos: [],
-        detalleProblemas: [],
-        save: vi.fn().mockResolvedValue({}),
-        populate: vi.fn().mockResolvedValue({}),
-      };
-
+      const mockPedido = pedidoAceptado();
       Pedido.findById.mockResolvedValue(mockPedido);
+      Reserva.findOne.mockResolvedValue(null);
 
       await finalizarPedido(req, res);
 
-      expect(Reserva.findOneAndUpdate).toHaveBeenCalledWith(
-        { pedidoId: 'p_1', estado: 'En Curso' },
-        { $set: { estado: 'Finalizada' } },
-        { new: true }
+      expect(registrarDescarteService).toHaveBeenCalledWith(
+        expect.objectContaining({ tipo: 'equipo', equipoId: 'eq_1', motivo: 'Roto por uso' }),
+        expect.anything()
       );
       expect(res.json).toHaveBeenCalled();
     });

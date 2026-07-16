@@ -379,11 +379,18 @@ export const finalizarPedidoService = async (pedidoId, body, usuario) => {
     );
   }
 
-  // Exigir el consumo reportado de todo consumible cuyo stock ya salió físicamente,
-  // ANTES de tocar descartes/stock. Si falta, aborta con 400 sin efectos colaterales.
-  const reservaEnCurso = await Reserva.findOne({ pedidoId: pedido._id, estado: "En Curso" });
-  if (reservaEnCurso) {
-    await validarConsumosRequeridos(reservaEnCurso, consumos);
+  // Exigir el consumo reportado de todo consumible cuyo stock ya salió físicamente
+  // y siga sin liquidar, ANTES de tocar descartes/stock. Si falta, aborta con 400
+  // sin efectos colaterales.
+  //
+  // Deliberadamente NO se filtra por estado de la reserva: el estado lo mueve un
+  // cron cada minuto, así que mirarlo hacía que el mismo pedido exigiera el consumo
+  // o no según el minuto en que se apretara "Finalizar", y que finalizarlo después
+  // de que el cron cerrara la reserva perdiera el sobrante en silencio. La
+  // exigencia la decide el dato físico (ver requiereConsumoReportado).
+  const reserva = await Reserva.findOne({ pedidoId: pedido._id });
+  if (reserva) {
+    await validarConsumosRequeridos(reserva, consumos);
   }
 
   // Fail-fast: el descarte solo aplica a reutilizables. Validamos ANTES del loop
@@ -463,32 +470,30 @@ export const finalizarPedidoService = async (pedidoId, body, usuario) => {
   const pedidoFinalizado = await pedido.save();
 
   // Finalizar la reserva asociada CON devolución de stock (reutilizables 100% y
-  // sobrante de consumibles según `consumos`), en transacción si se soporta. Esto
-  // reemplaza el antiguo flip directo a "Finalizada", que dejaba el stock sin reponer
-  // (los reutilizables decrementados al iniciar se perdían del inventario).
+  // sobrante de consumibles según `consumos`), en transacción si se soporta.
+  //
+  // La liquidación es data-driven: devuelve lo que salió y no se saldó, sin
+  // importar si la reserva está Pendiente, En Curso, Finalizada (por el cron) o en
+  // Conflicto. Antes se reclamaba con `{ estado: "En Curso" }` y, si no la
+  // encontraba, solo se seteaba "Finalizada" sin devolver nada: finalizar un pedido
+  // después de que el cron cerrara la reserva perdía el sobrante de los consumibles.
+  //
+  // Ya no hace falta el claim atómico por estado: la idempotencia se apoya en
+  // `liquidado` (por material) y el `save` dentro de la transacción serializa
+  // contra el cron.
   const finalizarReservaAsociada = async (session) => {
-    const claimOpts = { new: true, ...(session ? { session } : {}) };
-    const reserva = await Reserva.findOneAndUpdate(
-      { pedidoId: pedido._id, estado: "En Curso" },
-      { $set: { estado: "Finalizada" } },
-      claimOpts
-    );
-    // No está En Curso (nunca arrancó o ya la tomó el cron): no hubo decremento que
-    // devolver, solo aseguramos el estado Finalizada.
-    if (!reserva) {
-      await Reserva.findOneAndUpdate(
-        { pedidoId: pedido._id },
-        { $set: { estado: "Finalizada" } },
-        session ? { session } : undefined
-      );
-      return;
-    }
+    const opts = session ? { session } : {};
+    const reserva = await Reserva.findOne({ pedidoId: pedido._id }, null, opts);
+    if (!reserva) return;
+    // Estado terminal: la cancelación ya repuso su stock. Ni se liquida ni se pisa.
+    if (reserva.estado === "Cancelada") return;
     await aplicarDevolucionesFinalizacion(reserva, {
       consumos,
       usuarioId: usuario.id,
       session,
     });
-    await reserva.save(session ? { session } : undefined);
+    reserva.estado = "Finalizada";
+    await reserva.save(opts);
   };
 
   if (await soportaTransacciones()) {

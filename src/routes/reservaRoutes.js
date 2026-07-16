@@ -140,6 +140,97 @@ router.get("/laboratorio/:laboratorioId", validarJWT, reservaControllers.getRese
 
 /**
  * @swagger
+ * /reservas/pedido/{pedidoId}:
+ *   get:
+ *     summary: Obtener la reserva de un pedido con el detalle de consumo a reportar
+ *     description: >-
+ *       Alimenta el diálogo de finalización del front: devuelve la reserva
+ *       asociada al pedido y, por cada material, si hay que reportar el consumo
+ *       real y cuánto queda físicamente afuera. Requiere rol PERSONAL o ADMIN
+ *       (el mismo que PATCH /pedidos/{id}/finalizar, la acción que habilita).
+ *     tags: [Reservas]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: pedidoId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID del pedido
+ *     responses:
+ *       200:
+ *         description: Reserva del pedido con el detalle de materiales reservados
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 reservaId:
+ *                   type: string
+ *                 pedidoId:
+ *                   type: string
+ *                 estado:
+ *                   type: string
+ *                   example: En Curso
+ *                 requiereReporteConsumo:
+ *                   type: boolean
+ *                   description: true si algún material exige cantidadConsumida al finalizar
+ *                 materialesReservados:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       itemId:
+ *                         type: string
+ *                       nombre:
+ *                         type: string
+ *                       cantidadTotal:
+ *                         type: number
+ *                       esConsumible:
+ *                         type: boolean
+ *                         nullable: true
+ *                       consumoEjecutado:
+ *                         type: boolean
+ *                       liquidado:
+ *                         type: boolean
+ *                       requiereConsumo:
+ *                         type: boolean
+ *                       cantidadPendiente:
+ *                         type: number
+ *                         description: Tope de lo que se puede reportar como consumido
+ *       401:
+ *         description: Token ausente o inválido
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: El usuario no tiene rol PERSONAL/ADMIN
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: No hay una reserva asociada a ese pedido
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+// GET: reserva asociada a un pedido, con el detalle de qué consumibles hay que
+// reportar al finalizarlo (alimenta el diálogo de finalización del front). Mismo
+// rol que PATCH /pedidos/:id/finalizar, que es la acción que habilita.
+// Va antes que cualquier ruta "/:id" para que no la capture.
+router.get(
+  "/pedido/:pedidoId",
+  validarJWT,
+  validarRol("PERSONAL", "ADMIN"),
+  reservaControllers.getReservaPorPedido
+);
+
+/**
+ * @swagger
  * /reservas/{id}/cancelar:
  *   patch:
  *     summary: Cancelar una reserva y liberar sus recursos

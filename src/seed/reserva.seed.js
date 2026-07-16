@@ -17,6 +17,10 @@ import Lote from "../models/lote.model.js";
  *   efecto neto cero para reutilizables (no decrementa en el seed); el consumible
  *   no vuelve (queda decrementado en En Curso y Finalizada). Las reservas Pendiente
  *   no decrementan nada (solo dejan punteros FIFO para trazabilidad de descartes).
+ * - `liquidado` (§10) refleja si queda stock afuera por saldar, imitando lo que
+ *   deja el cron: al cerrar una ventana devuelve los reutilizables (los salda) y
+ *   deja los consumibles PENDIENTES, porque su sobrante solo se puede calcular
+ *   con el consumo real reportado al finalizar el pedido.
  */
 
 const HORA = 60 * 60 * 1000;
@@ -73,6 +77,8 @@ export const seedReservas = async () => {
       else estadoReserva = "Pendiente";
 
       const yaEjecutada = estadoReserva === "En Curso" || estadoReserva === "Finalizada";
+      // Un pedido ya Finalizado pasó por la finalización: sus materiales quedaron saldados.
+      const pedidoYaFinalizado = pedido.estado === "Finalizado";
 
       const equiposReservados = [];
       const materialesReservados = [];
@@ -83,20 +89,39 @@ export const seedReservas = async () => {
           equiposReservados.push({ equipoId: r.recursoId });
         } else if (ref === "Item") {
           const item = await Item.findById(r.recursoId);
+          const esConsumible = item?.esConsumible === true;
           // Consumible: decrementa si ya se ejecutó (En Curso o Finalizada; no vuelve).
           // Reutilizable: decrementa SOLO En Curso (si Finalizada, ya devolvió → neto 0).
-          const consumir = item?.esConsumible === true
-            ? yaEjecutada
-            : estadoReserva === "En Curso";
+          const consumir = esConsumible ? yaEjecutada : estadoReserva === "En Curso";
           const lotesUsados = await asignarLotes(r.recursoId, r.cantidad, consumir);
-          materialesReservados.push({
+
+          // ¿Queda algo afuera por saldar? Nunca se marca un material de una reserva
+          // Pendiente: el cron la va a promover más tarde y en ese momento el consumo
+          // SÍ debe exigirse; marcarlo acá silenciaría ese pedido para siempre.
+          //  - pedido ya Finalizado → su finalización saldó todo;
+          //  - reutilizable de reserva Finalizada → el cron ya lo devolvió (neto 0);
+          //  - consumible de reserva Finalizada con el pedido aún Aceptado → queda
+          //    PENDIENTE a propósito: es la ventana en la que todavía se puede
+          //    reportar el consumo real y recuperar el sobrante.
+          let liquidado = false;
+          if (pedidoYaFinalizado) liquidado = yaEjecutada;
+          else if (estadoReserva === "Finalizada" && !esConsumible) liquidado = true;
+
+          const material = {
             itemId: r.recursoId,
             cantidadTotal: r.cantidad,
             // `consumir` refleja si el descuento físico ya se aplicó (§7). Sin él,
             // lotesUsados es solo un puntero FIFO que no debe devolverse al finalizar.
             consumoEjecutado: consumir,
+            liquidado,
             lotesUsados,
-          });
+          };
+          // El pedido Finalizado ya reportó su consumo: sus consumibles se dieron
+          // por consumidos en su totalidad (no volvió sobrante), que es lo coherente
+          // con que su stock haya quedado decrementado.
+          if (pedidoYaFinalizado && esConsumible) material.cantidadConsumidaReal = r.cantidad;
+
+          materialesReservados.push(material);
         }
       }
 

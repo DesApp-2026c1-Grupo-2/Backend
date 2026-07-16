@@ -4,6 +4,8 @@ import Reserva from "../models/reserva.model.js";
 import Pedido from "../models/pedido.model.js";
 import Lote from "../models/lote.model.js";
 import Equipo from "../models/equipo.model.js";
+import Item from "../models/item.model.js";
+import { registrarMovimiento, stockFisicoItem } from "./movimientoStock.service.js";
 
 export const registrarDescarteService = async (data, usuario) => {
   const session = await mongoose.startSession();
@@ -42,6 +44,19 @@ export const registrarDescarteService = async (data, usuario) => {
     else {
       const materialReserva = reserva.materialesReservados.find(m => m.itemId.toString() === itemId);
       if (!materialReserva) throw new Error("El ítem no forma parte de la reserva de este pedido.");
+
+      const item = await Item.findById(itemId).session(session);
+      if (!item) throw new Error("El ítem no existe.");
+
+      // Solo los reutilizables (esConsumible === false) se descartan: el descarte
+      // es el único evento que les resta stock físico (romperse durante el uso).
+      // Los consumibles no se descartan, se reportan mediante su consumo al
+      // finalizar el pedido (ver validarConsumosRequeridos en devolucionReserva.js).
+      if (item.esConsumible !== false) {
+        throw new Error(
+          "Solo se pueden registrar descartes de ítems reutilizables. Los consumibles se reportan mediante su consumo al finalizar el pedido."
+        );
+      }
 
       // Validar histórico para no descartar más de lo usado
       const descartesPrevios = await Descarte.find({ pedidoId, itemId }).session(session);
@@ -92,6 +107,46 @@ export const registrarDescarteService = async (data, usuario) => {
 
       if (cantidadRestante > 0) {
         throw new Error("No hay suficiente cantidad disponible en los lotes asociados para cubrir el descarte.");
+      }
+
+      // Decremento físico SOLO para reutilizables (esConsumible === false). Los
+      // consumibles ya descontaron su stock al ejecutarse el consumo (cronReservas
+      // §7); descartarlos es puro registro. Los reutilizables nunca se
+      // decrementaron (son puramente temporales), así que el descarte —romperse
+      // durante el uso— es el evento que remueve su stock físico.
+      // La guarda $gte evita dejar cantidadDisponible negativo (min:0 no se valida
+      // en updateOne) y surfacea una inconsistencia física real.
+      if (item.esConsumible === false) {
+        const cantidadAnterior = await stockFisicoItem(itemId, session);
+
+        for (const la of lotesAfectados) {
+          const upd = await Lote.updateOne(
+            { _id: la.loteId, cantidadDisponible: { $gte: la.cantidad } },
+            { $inc: { cantidadDisponible: -la.cantidad } },
+            { session }
+          );
+          if (upd.matchedCount === 0) {
+            throw new Error("Stock físico insuficiente en el lote para registrar el descarte.");
+          }
+        }
+
+        // Movimiento de historial: el descarte de un reutilizable es el único
+        // evento que remueve su stock físico (invariante nueva = anterior + cantidad).
+        // Los consumibles no cambian cantidadDisponible aquí (ya se consumió al
+        // ejecutarse), por lo que no generan movimiento — su registro vive en el
+        // modelo Descarte.
+        await registrarMovimiento({
+          itemId,
+          tipoMovimiento: 'DESCARTE',
+          cantidad: -cantidad,
+          cantidadAnterior,
+          cantidadNueva: cantidadAnterior - cantidad,
+          reservaId: reserva._id,
+          origenLaboratorioId: reserva.laboratorioId,
+          usuarioId: usuario.id,
+          observacion: motivo,
+          loteId: lotesAfectados.length === 1 ? lotesAfectados[0].loteId : undefined
+        }, session);
       }
     }
 
@@ -151,6 +206,35 @@ export const revertirDescarteService = async (descarteId, usuario) => {
       if (equipo && equipo.estado === "fuera de servicio") {
         equipo.estado = "disponible";
         await equipo.save({ session });
+      }
+    } else {
+      // Material/reactivo: reponer el stock solo si el ítem es reutilizable, ya
+      // que fue el único caso en que el descarte decrementó cantidadDisponible
+      // (ver registrarDescarteService). Los consumibles no restaron nada.
+      const item = await Item.findById(descarte.itemId).session(session);
+      if (item && item.esConsumible === false && descarte.lotesAfectados) {
+        const cantidadAnterior = await stockFisicoItem(descarte.itemId, session);
+
+        for (const la of descarte.lotesAfectados) {
+          await Lote.updateOne(
+            { _id: la.loteId },
+            { $inc: { cantidadDisponible: la.cantidad } },
+            { session }
+          );
+        }
+
+        // Movimiento reverso: repone el stock que el descarte había removido.
+        await registrarMovimiento({
+          itemId: descarte.itemId,
+          tipoMovimiento: 'AJUSTE_MANUAL',
+          cantidad: descarte.cantidad,
+          cantidadAnterior,
+          cantidadNueva: cantidadAnterior + descarte.cantidad,
+          reservaId: descarte.reservaId,
+          destinoLaboratorioId: pedido.laboratorio,
+          usuarioId: usuario.id,
+          observacion: `Reversión de descarte ${descarte._id}`
+        }, session);
       }
     }
 

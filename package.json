@@ -27,11 +27,15 @@
     "jsonwebtoken": "^9.0.3",
     "lodash.isequal": "^4.5.0",
     "mongoose": "^9.5.0",
+    "nodemailer": "^9.0.3",
     "nodemon": "^3.1.14",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1",
     "vitest": "^4.1.8",
     "yamljs": "^0.3.0"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.8"
+    "@vitest/coverage-v8": "^4.1.8",
+    "prettier": "^3.9.4"
   }
 }

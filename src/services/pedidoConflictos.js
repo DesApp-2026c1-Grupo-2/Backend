@@ -1,8 +1,8 @@
 import Pedido from "../models/pedido.model.js";
 import Equipo from "../models/equipo.model.js";
-import Lote from "../models/lote.model.js";
 import Laboratorio from "../models/laboratorio.model.js";
 import Reserva from "../models/reserva.model.js";
+import { calcularDisponibilidad } from "./disponibilidad.js";
 
 const verificarConflictos = async (pedido) => {
   const conflictos = [];
@@ -26,62 +26,57 @@ const verificarConflictos = async (pedido) => {
       mensaje: "El pedido no tiene un laboratorio asignado. Debe asignarse uno antes de aprobar.",
     });
   } else {
+    const laboratorio = await Laboratorio.findById(pedido.laboratorio);
 
-  const laboratorio = await Laboratorio.findById(
-    pedido.laboratorio
-  );
-
-  if (!laboratorio) {
-    conflictos.push({
-      tipo: "laboratorio_no_existente",
-      severidad: "alta",
-      mensaje: "El laboratorio solicitado no existe",
-    });
-  } else {
-    if (pedido.alumnos > laboratorio.capacidad) {
+    if (!laboratorio) {
       conflictos.push({
-        tipo: "pedido_sobredimensionado",
+        tipo: "laboratorio_no_existente",
         severidad: "alta",
-        mensaje:
-          `Capacidad del laboratorio: ${laboratorio.capacidad}. ` +
-          `Alumnos solicitados: ${pedido.alumnos}.`,
+        mensaje: "El laboratorio solicitado no existe",
       });
-    }
-
-    // Retiramos el estado "reservado" obsoleto, evaluando inoperatividad real
-    if (
-      laboratorio.estado === "en mantenimiento" ||
-      laboratorio.estado === "fuera de servicio"
-    ) {
-      conflictos.push({
-        tipo: "laboratorio_no_disponible",
-        severidad: "alta",
-        mensaje:
-          `El laboratorio se encuentra en estado "${laboratorio.estado}".`,
-      });
-    }
-
-    if (inicioReal && finReal) {
-      const pedidoExistente = await Pedido.findOne({
-        _id: { $ne: pedido._id },
-        laboratorio: pedido.laboratorio,
-        fechaInicioReal: { $lt: finReal },
-        fechaFinReal: { $gt: inicioReal },
-        estado: {
-          $in: ["Pendiente", "En Revisión", "Aceptado"],
-        },
-      });
-
-      if (pedidoExistente) {
+    } else {
+      if (pedido.alumnos > laboratorio.capacidad) {
         conflictos.push({
-          tipo: "laboratorio_ocupado",
+          tipo: "pedido_sobredimensionado",
           severidad: "alta",
           mensaje:
-            "Ya existe un pedido para ese laboratorio en el horario solicitado (incluyendo el período de uso).",
+            `Capacidad del laboratorio: ${laboratorio.capacidad}. ` +
+            `Alumnos solicitados: ${pedido.alumnos}.`,
         });
       }
+
+      if (
+        laboratorio.estado === "en mantenimiento" ||
+        laboratorio.estado === "fuera de servicio"
+      ) {
+        conflictos.push({
+          tipo: "laboratorio_no_disponible",
+          severidad: "alta",
+          mensaje: `El laboratorio se encuentra en estado "${laboratorio.estado}".`,
+        });
+      }
+
+      if (inicioReal && finReal) {
+        const pedidoExistente = await Pedido.findOne({
+          _id: { $ne: pedido._id },
+          laboratorio: pedido.laboratorio,
+          fechaInicioReal: { $lt: finReal },
+          fechaFinReal: { $gt: inicioReal },
+          estado: {
+            $in: ["Pendiente", "Aceptado"],
+          },
+        });
+
+        if (pedidoExistente) {
+          conflictos.push({
+            tipo: "laboratorio_ocupado",
+            severidad: "alta",
+            mensaje:
+              "Ya existe un pedido para ese laboratorio en el horario solicitado (incluyendo el período de uso).",
+          });
+        }
+      }
     }
-  }
   }
 
   // =========================
@@ -104,14 +99,43 @@ const verificarConflictos = async (pedido) => {
           severidad: "alta",
           mensaje: "El equipo solicitado no existe",
         });
-
         continue;
       }
+
+      // ----------------------------------------------------
+      // NUEVA LOGICA: Validación de Equipos Fijos
+      // ----------------------------------------------------
+      if (equipo.esFijo) {
+        const idLaboratorioPedido = pedido.laboratorio?._id?.toString() || pedido.laboratorio?.toString();
+        const idLaboratorioEquipo = equipo.laboratorioId?._id?.toString() || equipo.laboratorioId?.toString() || equipo.laboratorio?._id?.toString() || equipo.laboratorio?.toString();
+
+        const laboratorioEquipo = await Laboratorio.findById(idLaboratorioEquipo).select("nombre");
+        const nombreLaboratorio = laboratorioEquipo?.nombre ?? "desconocido";
+
+        // Regra 3: Impedir selección de equipos fijos sin laboratorio asociado
+        if (!idLaboratorioEquipo) {
+          conflictos.push({
+            tipo: "equipo_fijo_sin_laboratorio",
+            severidad: "alta",
+            mensaje: `El equipo fijo "${equipo.nombre}" no tiene un laboratorio de origen asignado en el sistema.`,
+          });
+          continue; // Si no tiene lab de origen, saltamos las siguientes validaciones de lab
+        }
+
+        // Reglas 1 y 2: Equipos fijos de otro laboratorio / Incompatibilidades de asignación
+        if (!idLaboratorioPedido || idLaboratorioEquipo !== idLaboratorioPedido) {
+          conflictos.push({
+            tipo: "incompatibilidad_equipo_fijo",
+            severidad: "alta",
+            mensaje: `El equipo "${equipo.nombre}" pertenece al laboratorio "${nombreLaboratorio}" y no se puede asignar a este aula.`,
+          });
+        }
+      }
+      // ----------------------------------------------------
 
       let equipoConflictoDetectado = false;
 
       if (inicioReal && finReal) {
-        // Delegamos la verificación temporal de los equipos a la Reserva, ignorando al pedido actual
         const reservaOcupando = await Reserva.findOne({
           pedidoId: { $ne: pedido._id },
           fechaInicioReal: { $lt: finReal },
@@ -145,9 +169,13 @@ const verificarConflictos = async (pedido) => {
 
     if (ref === "Item") {
       const stockDisponible =
-        await Lote.calcularStockDisponible(
-          r.recursoId
-        );
+        inicioReal && finReal
+          ? await calcularDisponibilidad(r.recursoId, inicioReal, finReal)
+          : await calcularDisponibilidad(
+              r.recursoId,
+              new Date(0),
+              new Date(8640000000000000)
+            );
 
       if (stockDisponible < r.cantidad) {
         conflictos.push({

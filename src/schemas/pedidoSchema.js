@@ -66,7 +66,7 @@ const pedidoSchemaJoi = Joi.object({
         "number.base": "La cantidad de alumnos debe ser un número",
         "number.min": "Debe haber al menos 1 alumno",
     }),
-    estado: Joi.string().valid("Pendiente", "En Revisión", "Aceptado", "Rechazado", "Finalizado").default("Pendiente"),
+    estado: Joi.string().valid("Pendiente", "Aceptado", "Rechazado", "Finalizado", "Cancelado", "Expirado").default("Pendiente"),
     recursos: Joi.array().items(recursoSchemaJoi).min(0).default([]).messages({
         "array.base": "Los recursos deben ser un arreglo",
     }),
@@ -77,8 +77,54 @@ const pedidoSchemaJoi = Joi.object({
     activo: Joi.boolean().default(true).optional(),
 }).xor("fechaHora", "fecha").with("fecha", "hora").messages({
     "object.missing": "Debe proporcionar 'fechaHora' o la combinación de 'fecha' y 'hora'",
-    "object.xor": "No puede proporcionar 'fechaHora' y 'fecha' al mismo tiempo",
+    "object.xor": "No puede proporcionar 'fechaHora' and 'fecha' al mismo tiempo",
     "object.with": "Si proporciona 'fecha', también debe proporcionar 'hora'"
+});
+
+// Body de PATCH /pedidos/:id/finalizar.
+//
+// `consumos` figura como opcional acá porque su obligatoriedad NO es una cuestión
+// de forma: depende del estado físico del stock (si ya salió y sigue sin liquidar),
+// que Joi no puede ver. Esa exigencia la resuelve el gate del servicio
+// (validarConsumosRequeridos), que devuelve 400 listando los consumibles faltantes.
+// El front puede anticipar qué reportar con GET /reservas/pedido/:pedidoId.
+//
+// `consumos` reporta el consumo real de consumibles para devolver el sobrante
+// (misma forma que finalizarReservaSchema). `descartes`/`desperfectos` alimentan
+// el registro de descartes y el envío de equipos a mantenimiento.
+const consumoFinalizacionJoi = Joi.object({
+    itemId: Joi.string().hex().length(24).required().messages({
+        "any.required": "itemId es obligatorio en cada consumo",
+        "string.hex": "itemId debe ser un ObjectId válido",
+        "string.length": "itemId debe ser un ObjectId válido",
+    }),
+    cantidadConsumida: Joi.number().min(0).required().messages({
+        "any.required": "cantidadConsumida es obligatoria",
+        "number.base": "cantidadConsumida debe ser un número",
+        "number.min": "cantidadConsumida no puede ser negativa",
+    }),
+});
+
+const descarteFinalizacionJoi = Joi.object({
+    tipo: Joi.string().optional(),
+    itemId: Joi.string().hex().length(24).optional(),
+    equipoId: Joi.string().hex().length(24).optional(),
+    cantidad: Joi.number().min(1).optional(),
+    motivo: Joi.string().optional(),
+});
+
+const desperfectoFinalizacionJoi = Joi.alternatives().try(
+    Joi.string().hex().length(24),
+    Joi.object({
+        equipoId: Joi.string().hex().length(24).required(),
+        motivo: Joi.string().optional(),
+    })
+);
+
+export const finalizarPedidoSchema = Joi.object({
+    descartes: Joi.array().items(descarteFinalizacionJoi).optional(),
+    desperfectos: Joi.array().items(desperfectoFinalizacionJoi).optional(),
+    consumos: Joi.array().items(consumoFinalizacionJoi).optional(),
 });
 
 export default pedidoSchemaJoi;

@@ -15,17 +15,15 @@ const createProduccionReactivo = async (req, res) => {
 // R: Obtener todos los registros de producción (con filtros opcionales)
 const getProduccionesReactivos = async (req, res) => {
   try {
-    const { reactivoId, actividadId } = req.query;
+    const { reactivoId } = req.query;
     const filtros = { activo: { $ne: false } };
 
     if (reactivoId) filtros.reactivoId = reactivoId;
-    if (actividadId) filtros.actividadId = actividadId;
 
     const producciones = await ProduccionReactivo.find(filtros)
       .populate('reactivoId', 'nombre codigo tipo unidad')
-      .populate('composicionReal.sustanciaId', 'nombre codigo tipo unidad')
-      .populate('actividadId', 'nombre estado');
-      
+      .populate('composicionReal.sustanciaId', 'nombre codigo tipo unidad');
+
     return res.status(200).json(producciones);
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -38,8 +36,7 @@ const getProduccionReactivoById = async (req, res) => {
     const { id } = req.params;
     const produccion = await ProduccionReactivo.findOne({ _id: id, activo: { $ne: false } })
       .populate('reactivoId', 'nombre codigo tipo unidad')
-      .populate('composicionReal.sustanciaId', 'nombre codigo tipo unidad')
-      .populate('actividadId', 'nombre estado');
+      .populate('composicionReal.sustanciaId', 'nombre codigo tipo unidad');
     
     if (!produccion) {
       return res.status(404).json({ error: "Producción de reactivo no encontrada" });

@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
 
-/* Representa un lote de un ítem específico en el inventario. 
-Un lote es una cantidad física de un ítem que puede estar en diferentes estados (disponible, reservado, en uso, descartado). 
-Todo lote está asociado a un ítem (referencia a Item) y opcionalmente a una actividad (si está reservado o en uso).
-Todas las operaciones de stock se realizan a nivel de lote, no directamente sobre el ítem. 
+/* Representa un lote de un ítem específico en el inventario.
+Un lote es una cantidad física de un ítem que puede estar en diferentes estados (disponible, descartado).
+Todo lote está asociado a un ítem (referencia a Item). El vínculo stock↔uso se modela vía Reserva.materialesReservados.lotesUsados, no sobre el lote.
+Todas las operaciones de stock se realizan a nivel de lote, no directamente sobre el ítem.
 El item solamente se utiliza par definir las características generales (tipo, unidad, si es consumible o requiere receta), mientras que el lote maneja la cantidad física y su estado.
 Es importante destacar que el lote es la unidad de gestión del stock y no el ítem, ya que un mismo ítem puede tener múltiples lotes con diferentes cantidades y estados.
 */
@@ -11,15 +11,29 @@ Es importante destacar que el lote es la unidad de gestión del stock y no el í
 const loteSchema = new mongoose.Schema({
   itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'Item', required: true },
   cantidadDisponible: { type: Number, required: true, min: 0 },
-  ubicacion: { type: String, required: true },
-  estado: { 
-    type: String, 
-    enum: ['disponible', 'en_uso', 'descartado'], 
-    default: 'disponible' 
+  // Ubicación del lote: laboratorio donde está físicamente el stock.
+  // `null` = DEPÓSITO (valor por defecto). El eje de transferencias/devoluciones es
+  // depósito ↔ laboratorios (ver transferirLote en loteControllers.js).
+  // Nota: el agregado de stock (calcularStockDisponible/stockFisicoItem) es agnóstico a
+  // este campo — mover un lote de ubicación no cambia el stock disponible del item.
+  laboratorioId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Laboratorio',
+    default: null,
+    index: true
   },
+  estado: {
+    type: String,
+    enum: ['disponible', 'descartado'],
+    default: 'disponible'
+  },
+  // Fecha en que se creó/recibió la TANDA FÍSICA del lote. No confundir con
+  // `createdAt` (timestamps), que es cuándo se insertó la fila en la BD: un lote
+  // recibido hace meses puede darse de alta hoy (el seed la retrodata para
+  // simular lotes viejos). Se usa como desempate del FIFO en la asignación de
+  // stock — sort: { fechaVencimiento: 1, fechaCreacion: 1 } (ver aprobacionReserva.js / cronReservas.js).
   fechaCreacion: { type: Date, default: Date.now },
   fechaVencimiento: { type: Date },
-  actividadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Actividad' }, // Solo si está reservado/en uso
   activo: {
     type: Boolean,
     default: true,

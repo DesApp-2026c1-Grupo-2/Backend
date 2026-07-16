@@ -1,19 +1,38 @@
 import mongoose from "mongoose";
 import Item from "../models/item.model.js";
 import Lote from "../models/lote.model.js";
-import Actividad from "../models/actividad.model.js";
+import Laboratorio from "../models/laboratorio.model.js";
 import RecetaReactivo from "../models/recetaReactivo.model.js";
 import ProduccionReactivo from "../models/produccionReactivo.model.js";
 
+/*
+ * Seed de inventario DETERMINISTA y coherente con el modelo de stock temporal
+ * (docs/stock-disponibilidad-temporal.md).
+ *
+ * Decisiones:
+ *  - Sin aleatoriedad: cada reseed produce el mismo estado (demos/tests estables).
+ *  - Lotes nacen 'disponible'. El consumo físico (decremento de cantidad) lo
+ *    aplica reserva.seed.js SOLO para consumibles de reservas En Curso/Finalizada,
+ *    imitando el §7. Así el stock refleja qué se usó realmente.
+ *  - fechaCreacion escalonada (lotes viejos antes que nuevos) y fechaVencimiento
+ *    variada en consumibles → el orden FIFO (vencimiento, creación) es
+ *    significativo y reproducible.
+ *  - Se incluye un lote 'descartado' (cantidad 0) para ejercitar el "total físico
+ *    excluye descartados" (§14) y un lote próximo a vencer.
+ */
+
+const DIA = 24 * 60 * 60 * 1000;
+const dias = (n) => new Date(Date.now() + n * DIA);
+
 export const seedInventario = async () => {
   try {
-    // 1. Limpiar las colecciones en orden inverso a sus dependencias
+    // 1. Limpiar en orden inverso a las dependencias
     await ProduccionReactivo.deleteMany({});
     await RecetaReactivo.deleteMany({});
     await Lote.deleteMany({});
     await Item.deleteMany({});
 
-    // 2. Crear Ítems
+    // 2. Catálogo de ítems (características generales, sin stock físico)
     const items = await Item.insertMany([
       { tipo: 'material', nombre: 'Tubo de ensayo', codigo: 'MAT-001', unidad: 'unidad', esConsumible: false, requiereReceta: false },
       { tipo: 'material', nombre: 'Vaso de precipitados 250ml', codigo: 'MAT-002', unidad: 'unidad', esConsumible: false },
@@ -27,40 +46,89 @@ export const seedInventario = async () => {
       { tipo: 'reactivo', nombre: 'Etanol 96%', codigo: 'REA-003', unidad: 'ml', esConsumible: true, requiereReceta: false }
     ]);
 
-    const tubo = items.find(i => i.codigo === 'MAT-001');
-    const agua = items.find(i => i.codigo === 'SUS-001');
-    const sal = items.find(i => i.codigo === 'SUS-002');
-    const solucionSalina = items.find(i => i.codigo === 'REA-001');
+    const porCodigo = Object.fromEntries(items.map((i) => [i.codigo, i]));
 
-    // 3. Obtener Actividades (ya creadas por actividad.seed.js)
-    const actividades = await Actividad.find();
-    const actPractica = actividades.find(a => a.nombre === 'Práctica de Biología Celular') || actividades[0];
-    const actPrep = actividades.find(a => a.nombre === 'Preparación de Soluciones') || actividades[1];
+    // Laboratorios (sembrados antes) para ubicar algunos lotes fuera del depósito y
+    // así tener datos de prueba de DEVOLUCION (lab → depósito). El resto de lotes
+    // quedan con laboratorioId null = depósito. Si el lab no existe, el lote cae al
+    // depósito (fallback null) sin romper el seed.
+    const labs = await Laboratorio.find({}).select("nombre");
+    const labPorNombre = Object.fromEntries(labs.map((l) => [l.nombre, l._id]));
 
-    // 4. Generar Lotes dinámicos y consistentes para todos los ítems
+    // 3. Lotes deterministas por ítem.
+    //    - Reutilizables: sin vencimiento; el modelo temporal nunca los decrementa.
+    //    - Consumibles: con vencimiento variado; incluyen un caso "próximo a vencer".
+    //    `lab` (opcional): nombre del laboratorio donde está físicamente el lote;
+    //    ausente = depósito.
+    const lotesPorCodigo = {
+      // Vidriería reutilizable (varios lotes por compras en distintas fechas)
+      'MAT-001': [
+        { cantidadDisponible: 120, fechaCreacion: dias(-200) },
+        // Este lote vive en un laboratorio → sirve para probar la DEVOLUCION al depósito.
+        { cantidadDisponible: 60,  fechaCreacion: dias(-60), lab: 'Lab 1 — General' },
+        { cantidadDisponible: 0,   fechaCreacion: dias(-200), estado: 'descartado' }, // lote roto/dado de baja
+      ],
+      'MAT-002': [
+        { cantidadDisponible: 45, fechaCreacion: dias(-150) },
+        // También en un laboratorio (segundo caso de devolución / transferencia entre labs).
+        { cantidadDisponible: 30, fechaCreacion: dias(-30), lab: 'Lab 2 — Química' },
+      ],
+      'MAT-004': [
+        { cantidadDisponible: 40, fechaCreacion: dias(-120) },
+      ],
+      // Descartable consumible
+      'MAT-003': [
+        { cantidadDisponible: 200, fechaCreacion: dias(-90),  fechaVencimiento: dias(240) },
+        { cantidadDisponible: 150, fechaCreacion: dias(-30),  fechaVencimiento: dias(90) },
+      ],
+      // Sustancias consumibles
+      'SUS-001': [
+        { cantidadDisponible: 5000, fechaCreacion: dias(-120), fechaVencimiento: dias(300) },
+        { cantidadDisponible: 3000, fechaCreacion: dias(-20),  fechaVencimiento: dias(400) },
+      ],
+      'SUS-002': [
+        { cantidadDisponible: 2000, fechaCreacion: dias(-100), fechaVencimiento: dias(180) },
+        { cantidadDisponible: 1000, fechaCreacion: dias(-10),  fechaVencimiento: dias(7) }, // próximo a vencer
+      ],
+      'SUS-003': [
+        { cantidadDisponible: 5000, fechaCreacion: dias(-80), fechaVencimiento: dias(720) },
+      ],
+      // Reactivos
+      'REA-001': [
+        { cantidadDisponible: 200, fechaCreacion: dias(-50), fechaVencimiento: dias(60) },
+      ],
+      'REA-002': [
+        { cantidadDisponible: 1000, fechaCreacion: dias(-70), fechaVencimiento: dias(120) },
+      ],
+      'REA-003': [
+        { cantidadDisponible: 2000, fechaCreacion: dias(-40), fechaVencimiento: dias(500) },
+      ],
+    };
+
     const lotesGenerados = [];
-    for (const item of items) {
-      // Creamos entre 2 y 4 lotes por ítem
-      const numLotes = Math.floor(Math.random() * 3) + 2; 
-      for (let i = 0; i < numLotes; i++) {
-        const rand = Math.random();
-        const cantidad = rand > 0.85 ? 0 : Math.floor(Math.random() * 80) + 20; // 0 o entre 20-100
-        
+    for (const [codigo, lotes] of Object.entries(lotesPorCodigo)) {
+      const item = porCodigo[codigo];
+      for (const l of lotes) {
         lotesGenerados.push({
           itemId: item._id,
-          cantidadDisponible: cantidad,
-          ubicacion: `Armario ${Math.floor(Math.random() * 5) + 1} - Estante ${String.fromCharCode(65 + i)}`,
-          estado: cantidad === 0 ? 'descartado' : (rand > 0.6 ? 'en_uso' : 'disponible'),
-          fechaVencimiento: item.esConsumible ? new Date(Date.now() + 31536000000) : null // 1 año de vencimiento a consumibles
+          cantidadDisponible: l.cantidadDisponible,
+          // Depósito (null) por defecto; algunos lotes se ubican en un laboratorio.
+          laboratorioId: l.lab ? (labPorNombre[l.lab] ?? null) : null,
+          estado: l.estado || 'disponible',
+          fechaCreacion: l.fechaCreacion,
+          // Solo consumibles llevan vencimiento (los reutilizables no vencen).
+          fechaVencimiento: item.esConsumible ? (l.fechaVencimiento ?? dias(365)) : null,
         });
       }
     }
 
-    // Sobrescribimos o añadimos un lote forzado para la solución salina y actividad para mantener la prueba original
-    lotesGenerados.push({ itemId: solucionSalina._id, cantidadDisponible: 200, ubicacion: 'Refrigerador 1', estado: 'en_uso', actividadId: actPractica._id });
     await Lote.insertMany(lotesGenerados);
 
-    // 5. Crear la Receta Maestra para el Reactivo
+    // 4. Receta maestra del reactivo con receta (Solución Salina)
+    const agua = porCodigo['SUS-001'];
+    const sal = porCodigo['SUS-002'];
+    const solucionSalina = porCodigo['REA-001'];
+
     await RecetaReactivo.insertMany([
       {
         reactivoId: solucionSalina._id,
@@ -71,7 +139,7 @@ export const seedInventario = async () => {
       }
     ]);
 
-    // 6. Registrar una Producción del Reactivo (histórico)
+    // 5. Producción histórica del reactivo
     await ProduccionReactivo.insertMany([
       {
         reactivoId: solucionSalina._id,
@@ -80,8 +148,7 @@ export const seedInventario = async () => {
           { sustanciaId: sal._id, cantidadUsada: 10 }
         ],
         cantidadGenerada: 200,
-        fecha: new Date('2026-05-10T15:00:00Z'),
-        actividadId: actPrep._id
+        fecha: dias(-50)
       }
     ]);
 

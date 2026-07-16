@@ -74,7 +74,33 @@ const equipoIdParamSchema = Joi.object({
 const equipoQuerySchema = Joi.object({
   estado: Joi.string().valid("disponible", "mantenimiento", "fuera de servicio").optional(),
   edificioId: Joi.string().hex().length(24).allow("null").optional(),
-  laboratorioId: Joi.string().hex().length(24).allow("null").optional()
+  laboratorioId: Joi.string().hex().length(24).allow("null").optional(),
+  // Búsqueda + paginación para la pantalla de Stock. Sin estos campos el
+  // middleware validate (stripUnknown) los descartaría antes del controller.
+  q: Joi.string().trim().allow("").optional(),
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(20),
 });
 
-export { createEquipoSchema, updateEquipoSchema, equipoIdParamSchema, equipoQuerySchema };
+const estadisticasUsoQuerySchema = Joi.object({
+  periodo: Joi.string().valid("dia", "semana", "mes").default("semana"),
+  fecha: Joi.date().iso().default(() => new Date()),
+  laboratorioId: Joi.string().hex().length(24).optional().messages({
+    "string.length": "El ID del laboratorio debe tener exactamente 24 caracteres",
+    "string.hex": "El ID del laboratorio debe ser un ObjectId válido",
+  }),
+  equipoId: Joi.string().hex().length(24).optional().messages({
+    "string.length": "El ID del equipo debe tener exactamente 24 caracteres",
+    "string.hex": "El ID del equipo debe ser un ObjectId válido",
+  }),
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(10),
+});
+
+export {
+  createEquipoSchema,
+  updateEquipoSchema,
+  equipoIdParamSchema,
+  equipoQuerySchema,
+  estadisticasUsoQuerySchema,
+};

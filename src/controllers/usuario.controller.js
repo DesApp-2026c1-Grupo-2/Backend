@@ -123,6 +123,25 @@ const createUsuario = async (req, res) => {
       delete datosUsuario.legajo;
     }
 
+    const usuarioExistente = await Usuario.findOne({
+      email: datosUsuario.email,
+      activo: { $ne: false },
+    });
+
+    if (usuarioExistente) {
+      if (usuarioExistente.estado === "PENDIENTE") {
+        return res.status(409).json({
+          message:
+            "Ya existe una solicitud para este correo. Esperá a que un administrador la apruebe o rechace antes de volver a intentarlo.",
+        });
+      }
+
+      return res.status(409).json({
+        message:
+          "Ya existe un usuario registrado con ese correo electrónico.",
+      });
+    }
+
     const nuevoUsuario = new Usuario(datosUsuario);
     const usuarioGuardado = await nuevoUsuario.save();
     

@@ -81,8 +81,14 @@ const pedidoSchemaJoi = Joi.object({
     "object.with": "Si proporciona 'fecha', también debe proporcionar 'hora'"
 });
 
-// Body de PATCH /pedidos/:id/finalizar. Todo opcional: se puede finalizar sin
-// reportar nada (consumibles se asumen consumidos al 100%, sin descartes).
+// Body de PATCH /pedidos/:id/finalizar.
+//
+// `consumos` figura como opcional acá porque su obligatoriedad NO es una cuestión
+// de forma: depende del estado físico del stock (si ya salió y sigue sin liquidar),
+// que Joi no puede ver. Esa exigencia la resuelve el gate del servicio
+// (validarConsumosRequeridos), que devuelve 400 listando los consumibles faltantes.
+// El front puede anticipar qué reportar con GET /reservas/pedido/:pedidoId.
+//
 // `consumos` reporta el consumo real de consumibles para devolver el sobrante
 // (misma forma que finalizarReservaSchema). `descartes`/`desperfectos` alimentan
 // el registro de descartes y el envío de equipos a mantenimiento.

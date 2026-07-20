@@ -183,15 +183,28 @@ const notificarPersonal = (reservaId, error) => {
  * Devolución física de materiales REUTILIZABLES al finalizar la reserva (§10): el
  * reutilizable se decrementó al iniciar (§7), así que al cerrarse vuelve el 100%
  * de lo que salió (repone `lotesUsados` + registra DEVOLUCION con `cantidad > 0`).
- * Los consumibles NO se devuelven acá (default "se consumió todo"; el sobrante se
- * repone solo en la finalización manual, ver reservaControllers.finalizarReserva).
+ *
+ * Los consumibles NO se devuelven acá y quedan `liquidado: false` a propósito: su
+ * sobrante solo se puede calcular con el consumo real reportado, así que la
+ * liquidación queda pendiente hasta que se finalice el pedido/reserva a mano. Por
+ * eso `liquidado` es por material y no por reserva.
+ *
+ * Cada reutilizable devuelto queda marcado `liquidado` con `lotesUsados` vacío: es
+ * lo que impide que una finalización manual posterior lo devuelva por segunda vez.
  *
  * Evento de sistema (sin usuarioId). Transaccional si la conexión lo soporta;
- * best-effort: un fallo no debe impedir la finalización de las demás reservas.
+ * best-effort: un fallo no debe impedir la finalización de las demás reservas. Si
+ * falla, `liquidado` queda en false y la finalización manual lo repara.
+ *
+ * Concurrencia con la finalización manual: con réplica set ambos caminos escriben
+ * el mismo documento de reserva dentro de una transacción, así que MongoDB los
+ * serializa por write-conflict. En el camino degradado standalone no hay
+ * aislamiento (igual que hoy): `liquidado` acota el daño pero no lo elimina.
  */
 const devolverReutilizablesAlFinalizar = async (reserva) => {
   const ejecutar = async (session) => {
     for (const mat of reserva.materialesReservados ?? []) {
+      if (mat.liquidado === true) continue; // ya saldado, no se toca
       const item = await Item.findById(mat.itemId).select("esConsumible").session(session ?? null);
       if (!item || item.esConsumible !== false) continue; // solo reutilizables
       // Sin descuento físico previo, `lotesUsados` es un puntero que nunca salió:
@@ -203,7 +216,11 @@ const devolverReutilizablesAlFinalizar = async (reserva) => {
         session,
         observacion: "Devolución de material reutilizable al finalizar la reserva",
       });
+      // Volvió el 100%: no queda nada afuera que devolver.
+      mat.lotesUsados = [];
+      mat.liquidado = true;
     }
+    await reserva.save(session ? { session } : undefined);
   };
 
   try {

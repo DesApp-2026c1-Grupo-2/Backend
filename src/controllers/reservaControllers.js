@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import Reserva from "../models/reserva.model.js";
 import Pedido from "../models/pedido.model.js";
 import { soportaTransacciones } from "../services/aprobacionReserva.js";
-import { devolverYRegistrar, aplicarDevolucionesFinalizacion, validarConsumosRequeridos } from "../services/devolucionReserva.js";
+import { devolverYRegistrar, aplicarDevolucionesFinalizacion, validarConsumosRequeridos, requiereConsumoReportado } from "../services/devolucionReserva.js";
 
 // Controlador para listar reservas activas filtradas por un laboratorio específico
 const getReservasActivasPorLaboratorio = async (req, res) => {
@@ -124,6 +124,9 @@ const cancelarReserva = async (req, res) => {
             usuarioId: req.usuario?.id,
             observacion: 'Reposición de stock por cancelación de reserva'
           });
+          // Volvió el 100%: queda saldado y nadie más debe tocar sus lotes.
+          material.lotesUsados = [];
+          material.liquidado = true;
         } catch (error) {
           console.error("[cancelarReserva] no se pudo reponer/registrar el stock:", error.message);
         }
@@ -223,10 +226,64 @@ const finalizarReserva = async (req, res) => {
   }
 };
 
+/*
+ * Reserva asociada a un pedido, con el detalle de qué consumibles hay que reportar
+ * al finalizarlo. Alimenta el diálogo de finalización del front, que antes no tenía
+ * de dónde leer este dato: `pedido.recursos` no sabe si el stock ya salió, así que
+ * el front no podía anticipar si el PATCH le iba a exigir los consumos.
+ *
+ * `requiereConsumo` se calcula con la MISMA función que usa el gate del backend
+ * (requiereConsumoReportado), así el front pregunta exactamente lo que se va a
+ * exigir y no pueden desincronizarse.
+ */
+const getReservaPorPedido = async (req, res) => {
+  try {
+    const { pedidoId } = req.params;
+
+    const reserva = await Reserva.findOne({ pedidoId })
+      .populate("materialesReservados.itemId", "nombre esConsumible");
+
+    if (!reserva) {
+      return res.status(404).json({ error: "No hay una reserva asociada a ese pedido" });
+    }
+
+    const materialesReservados = (reserva.materialesReservados ?? []).map((material) => {
+      // `itemId` viene populado; si el item fue borrado queda el ObjectId crudo.
+      const item = material.itemId && material.itemId.nombre ? material.itemId : null;
+      const itemId = item ? item._id : material.itemId;
+
+      return {
+        itemId: String(itemId),
+        nombre: item?.nombre ?? String(itemId),
+        cantidadTotal: material.cantidadTotal,
+        esConsumible: item?.esConsumible ?? null,
+        consumoEjecutado: material.consumoEjecutado === true,
+        liquidado: material.liquidado === true,
+        requiereConsumo: requiereConsumoReportado(material, item),
+        // Cuánto queda físicamente afuera: tope de lo que se puede reportar.
+        cantidadPendiente: (material.lotesUsados ?? []).reduce((acc, l) => acc + l.cantidad, 0),
+      };
+    });
+
+    res.json({
+      reservaId: String(reserva._id),
+      pedidoId: String(reserva.pedidoId),
+      estado: reserva.estado,
+      // Booleano listo para que el front decida si abre el diálogo de consumo.
+      requiereReporteConsumo: materialesReservados.some((m) => m.requiereConsumo),
+      materialesReservados,
+    });
+  } catch (error) {
+    console.error("Error en getReservaPorPedido:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export {
   getReservasActivasPorLaboratorio,
   getReservasActivas,
   getReservasFinalizadas,
+  getReservaPorPedido,
   cancelarReserva,
   finalizarReserva
 };

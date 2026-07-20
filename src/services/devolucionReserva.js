@@ -91,18 +91,41 @@ export const devolverYRegistrar = async (
  * MUTA `reserva.materialesReservados` en memoria; NO hace el claim de estado ni el
  * `save` (eso queda en el caller, que maneja su propia transacción/guarda).
  *
- * `consumos`: [{ itemId, cantidadConsumida }] — items omitidos se dan por
- * consumidos en su totalidad. El consumido se clampa a lo decrementado (no se
- * puede consumir más de lo que salió).
+ * Idempotente: cada material procesado queda marcado `liquidado` y las corridas
+ * siguientes lo saltean. Eso permite invocarla sobre una reserva que el cron ya
+ * cerró (devolvió sus reutilizables y los marcó) sin devolverlos por segunda vez,
+ * recuperando igual el sobrante de los consumibles, que el cron deja pendientes.
+ *
+ * `consumos`: [{ itemId, cantidadConsumida }] — el gate exige que vengan todos los
+ * consumibles sin liquidar. El consumido se clampa a lo decrementado (no se puede
+ * consumir más de lo que salió).
  */
 /*
- * Regla de negocio: al finalizar manualmente una reserva, TODO consumible cuyo
- * descuento físico ya se ejecutó (§7) debe reportar su consumo real. No se admite
- * el default "se consumió todo": el operador tiene que indicar cuánto se usó de
- * cada consumible (0 si no se usó nada, y así vuelve el 100% del sobrante).
+ * Predicado del gate: ¿este material exige que se reporte su consumo real?
+ *
+ * Fuente única de verdad, compartida por `validarConsumosRequeridos` (que tira el
+ * 400) y por el endpoint GET /reservas/pedido/:pedidoId (que le dice al front qué
+ * preguntar). Van juntos a propósito: si divergieran, el front pediría una cosa y
+ * el backend exigiría otra.
+ *
+ * Depende SOLO del dato físico, nunca del estado de la reserva: el estado lo mueve
+ * un cron cada minuto, así que atarse a él hacía que el mismo pedido exigiera el
+ * consumo o no según el minuto en que se apretara "Finalizar".
+ */
+export const requiereConsumoReportado = (material, item) =>
+  material?.consumoEjecutado === true && // salió stock físico
+  material?.liquidado !== true &&        // y todavía no se saldó
+  item?.esConsumible === true;           // los reutilizables vuelven completos
+
+/*
+ * Regla de negocio: al finalizar, TODO consumible cuyo descuento físico ya se
+ * ejecutó (§7) y siga sin liquidar debe reportar su consumo real. No se admite el
+ * default "se consumió todo": el operador tiene que indicar cuánto se usó de cada
+ * consumible (0 si no se usó nada, y así vuelve el 100% del sobrante).
  *
  * Los reutilizables NO requieren consumo (vuelven completos). Los materiales sin
- * `consumoEjecutado` tampoco (no salió stock, no hay nada que reportar).
+ * `consumoEjecutado` tampoco (no salió stock, no hay nada que reportar), ni los ya
+ * liquidados (el cron o una finalización previa ya los saldó).
  *
  * Lanza un Error con `status: 400` si falta el consumo de algún consumible.
  */
@@ -111,19 +134,23 @@ export const validarConsumosRequeridos = async (
   consumos = [],
   { session = null } = {}
 ) => {
+  // `Number.isFinite` y no `typeof === "number"`: NaN es un number y colaba como
+  // reporte válido. Joi ya coacciona/rechaza en la ruta HTTP, pero este servicio
+  // también se llama desde otros contextos.
   const reportados = new Set(
     consumos
-      .filter((c) => typeof c.cantidadConsumida === "number")
+      .filter((c) => c?.itemId && Number.isFinite(c.cantidadConsumida))
       .map((c) => String(c.itemId))
   );
 
   const faltantes = [];
   for (const material of reserva.materialesReservados ?? []) {
-    if (material.consumoEjecutado !== true) continue;
+    // Corte temprano para no ir a buscar el Item de un material que no puede exigir.
+    if (material.consumoEjecutado !== true || material.liquidado === true) continue;
     const item = await Item.findById(material.itemId)
       .select("esConsumible nombre")
       .session(session ?? null);
-    if (!item || item.esConsumible !== true) continue; // solo consumibles
+    if (!requiereConsumoReportado(material, item)) continue;
     if (!reportados.has(String(material.itemId))) {
       faltantes.push(item.nombre || String(material.itemId));
     }
@@ -190,11 +217,18 @@ export const aplicarDevolucionesFinalizacion = async (
   );
 
   for (const material of reserva.materialesReservados) {
+    // Ya saldado (por el cron al vencer la ventana, o por una finalización previa):
+    // sus lotes no se tocan. Esta guarda es lo que vuelve idempotente la función y
+    // lo que evita la doble devolución de reutilizables cuando el pedido se
+    // finaliza después de que el cron ya cerró la reserva.
+    if (material.liquidado === true) continue;
+
     // Sin descuento físico previo (§7), `lotesUsados` es solo un puntero FIFO que
     // NUNCA salió del inventario: devolverlo inyectaría stock fantasma. No hay nada
     // que reponer y el consumo real es 0.
     if (material.consumoEjecutado !== true) {
       material.cantidadConsumidaReal = 0;
+      material.liquidado = true;
       continue;
     }
 
@@ -202,7 +236,10 @@ export const aplicarDevolucionesFinalizacion = async (
       .select("esConsumible")
       .session(session ?? null);
     const decrementado = (material.lotesUsados ?? []).reduce((acc, l) => acc + l.cantidad, 0);
-    if (decrementado <= 0) continue;
+    if (decrementado <= 0) {
+      material.liquidado = true;
+      continue;
+    }
 
     const esReutilizable = item && item.esConsumible === false;
     let aDevolver;
@@ -210,11 +247,20 @@ export const aplicarDevolucionesFinalizacion = async (
       aDevolver = decrementado; // el reutilizable vuelve completo
     } else {
       const reportado = consumoPorItem.get(String(material.itemId));
+      // El `?? decrementado` es un fallback defensivo hoy inalcanzable: el gate
+      // (validarConsumosRequeridos) garantiza que todo consumible sin liquidar
+      // llegue con su consumo reportado. Se conserva porque, si un caller futuro
+      // esquivara el gate, asumir "se consumió todo" NO devuelve nada y por lo
+      // tanto no infla el inventario; un `?? 0` haría que una omisión accidental
+      // repusiera stock realmente consumido. La exigencia vive en el gate, no acá.
       const consumido = Math.min(reportado ?? decrementado, decrementado);
       material.cantidadConsumidaReal = consumido;
       aDevolver = decrementado - consumido;
     }
-    if (aDevolver <= 0) continue;
+    if (aDevolver <= 0) {
+      material.liquidado = true;
+      continue;
+    }
 
     const repuesto = await devolverYRegistrar(reserva, material, aDevolver, {
       session,
@@ -230,5 +276,6 @@ export const aplicarDevolucionesFinalizacion = async (
       if (lu) lu.cantidad -= r.cantidad;
     }
     material.lotesUsados = material.lotesUsados.filter((l) => l.cantidad > 0);
+    material.liquidado = true;
   }
 };

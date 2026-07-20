@@ -181,7 +181,10 @@ const deleteItemLogico = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const lotesAsociados = await Lote.exists({ itemId: id });
+    const lotesAsociados = await Lote.exists({
+      itemId: id,
+      activo: true,
+    });
     if (lotesAsociados) {
       return res.status(409).json({
         error: "No se puede eliminar el ítem porque tiene lotes registrados en el inventario. Vacíe el stock primero o mueva los lotes a estado 'descartado'.",

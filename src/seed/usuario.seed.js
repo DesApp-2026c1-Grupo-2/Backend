@@ -29,6 +29,17 @@ const usuariosPrueba = [
     legajo: "PER001",
     rol: "PERSONAL",
     estado: "PENDIENTE"
+  },
+  {
+    // Docente nuevo SIN pedidos asociados (pedido.seed.js asigna sus pedidos al
+    // primer DOCENTE que encuentra, Juan Pérez, así que este queda sin pedidos).
+    nombre: "Laura",
+    apellido: "Fernández",
+    email: "laura.fernandez@test.com",
+    password: "password123",
+    legajo: "DOC002",
+    rol: "DOCENTE",
+    estado: "ACTIVO"
   }
 ];
 

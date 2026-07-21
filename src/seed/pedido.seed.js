@@ -31,6 +31,8 @@ const enDias = (n, hora = 10) => {
   d.setHours(hora, 0, 0, 0);
   return d;
 };
+// Fecha absoluta fija (mes 0-indexado: 6 = Julio).
+const fecha = (anio, mes, dia, hora = 10) => new Date(anio, mes, dia, hora, 0, 0, 0);
 
 export const seedPedidos = async () => {
   try {
@@ -253,6 +255,76 @@ export const seedPedidos = async () => {
           { descripcion: "Acondicionar equipo reservado y verificar su funcionamiento.", tipo: "Logistica", estado: "Completada" },
           { descripcion: "Colocar materiales y equipos en los carritos destinados al aula.", tipo: "General", estado: "Completada" }
         ]
+      },
+
+      // 12-14. PENDIENTES el 23/07/2026 a las 18:00 — no generan reserva
+      {
+        materia: "Química General II",
+        docente: docente._id,
+        fechaHora: fecha(2026, 6, 23, 18),
+        duracionClase: 120,
+        laboratorio: labQuimica._id,
+        alumnos: 20,
+        estado: "Pendiente",
+        recursos: [
+          { recursoId: balMovil._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: it("MAT-001")._id, tipoRecurso: "Item", cantidad: 10 },
+          { recursoId: it("SUS-001")._id, tipoRecurso: "Item", cantidad: 400 },
+        ],
+      },
+      {
+        materia: "Física General",
+        docente: docente._id,
+        fechaHora: fecha(2026, 6, 23, 18),
+        duracionClase: 90,
+        laboratorio: labFisica._id,
+        alumnos: 18,
+        estado: "Pendiente",
+        recursos: [
+          { recursoId: micMovil._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: it("MAT-002")._id, tipoRecurso: "Item", cantidad: 8 },
+        ],
+      },
+      {
+        materia: "Biología General",
+        docente: docente._id,
+        fechaHora: fecha(2026, 6, 23, 18),
+        duracionClase: 120,
+        laboratorio: labBioq._id,
+        alumnos: 22,
+        estado: "Pendiente",
+        recursos: [
+          { recursoId: it("MAT-003")._id, tipoRecurso: "Item", cantidad: 25 },
+          { recursoId: it("REA-001")._id, tipoRecurso: "Item", cantidad: 150 },
+        ],
+      },
+
+      // 15-16. EXPIRADOS — pedidos cuya fecha pasó sin ser aprobados
+      {
+        materia: "Química Ambiental",
+        docente: docente._id,
+        fechaHora: enDias(-10, 10),
+        duracionClase: 120,
+        laboratorio: labQuimica._id,
+        alumnos: 20,
+        estado: "Expirado",
+        recursos: [
+          { recursoId: it("REA-002")._id, tipoRecurso: "Item", cantidad: 100 },
+          { recursoId: it("MAT-004")._id, tipoRecurso: "Item", cantidad: 5 },
+        ],
+      },
+      {
+        materia: "Física Moderna",
+        docente: docente._id,
+        fechaHora: enDias(-5, 15),
+        duracionClase: 90,
+        laboratorio: labFisica._id,
+        alumnos: 25,
+        estado: "Expirado",
+        recursos: [
+          { recursoId: balMovil._id, tipoRecurso: "Equipo", cantidad: 1 },
+          { recursoId: it("MAT-002")._id, tipoRecurso: "Item", cantidad: 6 },
+        ],
       },
     ];
 
